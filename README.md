@@ -30,7 +30,9 @@ Davis), reworked for Uchiyomi's native API.
   every downloaded chapter that is not currently open.
 - **Next chapter**: turning past the last page marks the chapter finished
   (in KOReader and on Uchiyomi) and offers to open / download / stream the
-  next one; works offline when the next chapter is already on the device.
+  next one. Offline, only the chapter Uchiyomi named as next is opened
+  (never a later file that would skip chapters); if it is missing, the
+  plugin offers to turn Wi-Fi on and fetch it.
 - **Series actions**: favourite, download next unread N, mark all read.
 - Covers, list/grid views, series subfolders, storage cap, 18+ libraries opt-in.
 

@@ -323,6 +323,9 @@ function Plugin:onReaderReady()
         self.bookmarks:flushOffline()
         if not self.pending_goto_page then self.sync:pullProgress(ui, false) end
         self.bookmarks:syncOpenDocument(ui, false)
+        -- Remember which chapter follows this one, for when Wi-Fi is gone
+        -- by the time it is finished.
+        pcall(self.sync.cacheNextChapterFor, self.sync, self.current_book_id)
     end
 end
 

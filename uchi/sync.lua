@@ -809,6 +809,15 @@ local function next_descriptor(book)
     }
 end
 
+--- Ask the server which chapter follows book_id and remember it, so the
+-- answer is known later when Wi-Fi is gone. Returns the book, or nil, err, code.
+function Sync:cacheNextChapterFor(book_id)
+    if not self.plugin.api or not book_id then return nil end
+    local nb, err, code = self.plugin.api:get_next_book(book_id)
+    if nb then self:cacheNextChapter(book_id, nb) end
+    return nb, err, code
+end
+
 function Sync:cacheNextChapter(book_id, next_book)
     local desc = next_descriptor(next_book)
     if not book_id or not desc then return end
@@ -855,29 +864,69 @@ function Sync:promptNextChapter(ui, show_native)
         end)
     end
 
-    -- 3. Next chapter. Without the server: whatever is already on the device.
+    -- Runs once the server is reachable again: record the finished chapter,
+    -- ask which chapter is next, download it if needed and open it.
+    local function fetch_and_open_next()
+        if not self.plugin.api then
+            self.plugin:notify(_("Uchiyomi is not configured."), "error")
+            return
+        end
+        self:flushOfflineProgress(false)
+        local nb, err2, code2 = self:cacheNextChapterFor(book_id)
+        if not nb then
+            if code2 == 404 then
+                self.plugin:notify(_("This was the last chapter on the server."), "info")
+                return
+            end
+            local cached = self.plugin.settings.next_chapter_cache and self.plugin.settings.next_chapter_cache[tostring(book_id)]
+            if not cached then
+                self.plugin:notify(T(_("Could not fetch the next chapter: %1"), tostring(err2)), "error")
+                return
+            end
+            nb = cached
+        end
+        local p = self:getBookLocalPath(nb, nb.seriesTitle)
+        if p and lfs.attributes(p, "mode") == "file" then
+            open_path(p)
+        else
+            self:downloadBook(nb, nb.seriesTitle, open_path)
+        end
+    end
+
+    -- 3. Next chapter without the server. Only the chapter Uchiyomi itself
+    --    named as next (cached while online) is ever opened: a later file
+    --    that happens to be on the device would skip chapters. Anything else
+    --    is reported, with an offer to reconnect and fetch the right one.
     local function offline_dialog(reason)
-        local local_next = self:getOfflineNextChapter(filepath)
         local cached = self.plugin.settings.next_chapter_cache and self.plugin.settings.next_chapter_cache[tostring(book_id)]
         local path, title
-        if local_next then
-            path, title = local_next.path, local_next.title
-        elseif cached then
-            title = (cached.metadata and cached.metadata.title) or cached.name
+        if cached then
+            title = book_title(cached)
             local p = self:getBookLocalPath(cached, cached.seriesTitle)
             if p and lfs.attributes(p, "mode") == "file" then path = p end
         end
+        local text
+        if path then
+            text = T(_("%1 Next chapter is on this device: %2"), reason, title)
+        elseif cached then
+            text = T(_("%1 The next chapter (%2) is not on this device."), reason, title)
+        else
+            text = T(_("%1 Which chapter comes next is not known without the server."), reason)
+        end
         local dialog
-        dialog = ButtonDialog:new{
-            title = path and T(_("%1 Next chapter is on this device: %2"), reason, title or "")
-                or T(_("%1 The next chapter is not on this device.\nProgress syncs when you reconnect."), reason),
-            buttons = {
-                { { text = _("Open next chapter"), enabled = path ~= nil, is_enter_default = path ~= nil,
-                    callback = function() UIManager:close(dialog); open_path(path) end } },
-                { { text = _("Default action"), callback = function() UIManager:close(dialog); if show_native then show_native() end end },
-                  { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
-            },
-        }
+        local buttons = {}
+        if path then
+            table.insert(buttons, { { text = _("Open next chapter"), is_enter_default = true,
+                callback = function() UIManager:close(dialog); open_path(path) end } })
+        else
+            table.insert(buttons, { { text = online and _("Try again") or _("Turn on Wi-Fi and fetch it"), is_enter_default = true,
+                callback = function() UIManager:close(dialog); NetworkMgr:runWhenOnline(fetch_and_open_next) end } })
+        end
+        table.insert(buttons, {
+            { text = _("Default action"), callback = function() UIManager:close(dialog); if show_native then show_native() end end },
+            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+        })
+        dialog = ButtonDialog:new{ title = text, buttons = buttons }
         UIManager:show(dialog)
     end
 
@@ -1047,24 +1096,6 @@ function Sync:getOfflineSeriesList()
     end
     table.sort(order, function(a, b) return (a.key or ""):lower() < (b.key or ""):lower() end)
     return order
-end
-
-function Sync:getOfflineNextChapter(filepath)
-    if not filepath then return nil end
-    local cur = self:getOfflineBookInfo(filepath)
-    if not cur.series then return nil end
-    local best
-    for _i, b in ipairs(self:getDownloadedBookInfos()) do
-        if b.path ~= filepath and b.series == cur.series then
-            if cur.series_index and b.series_index then
-                if b.series_index > cur.series_index and (not best or b.series_index < best.series_index) then best = b end
-            elseif not cur.series_index then
-                if b.path > filepath and (not best or b.path < best.path) then best = b end
-            end
-        end
-    end
-    if not best then return nil end
-    return { path = best.path, title = best.title, book_id = best.book_id, series_index = best.series_index }
 end
 
 return Sync

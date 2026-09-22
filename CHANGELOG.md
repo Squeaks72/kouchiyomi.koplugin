@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 — 2026-09-22
+- Offline end of chapter no longer opens "the next downloaded file in the series", which skipped chapters when some were missing (944 → 947). Only the chapter Uchiyomi named as next is ever opened. The plugin now caches that answer every time a linked chapter is opened online.
+- When that chapter is not on the device (or is unknown), the dialog says so and offers "Turn on Wi-Fi and fetch it": KOReader's reconnect prompt, then the finished chapter is synced, the next one downloaded and opened.
+
 ## 0.3.1 — 2026-09-22
 - Chapters that reached the device outside the plugin (syncthing, USB, another client) were never linked to Uchiyomi, so finishing one fell through to KOReader's own end-of-document dialog with no explanation. Files inside the download folder are now auto-linked on open by series folder and chapter title/number.
 - End of chapter on an unlinked chapter in the download folder now says so and offers "Link it now..." instead of silently showing KOReader's dialog. A handler error is shown on screen, not just logged.
