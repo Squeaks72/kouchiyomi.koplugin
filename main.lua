@@ -147,6 +147,46 @@ function Plugin:onKouchiyomiSync()
     return true
 end
 
+--- Plain-text state dump for Tools > Uchiyomi > Diagnostics.
+function Plugin:diagnosticsText()
+    local NetworkMgr = require("ui/network/manager")
+    local meta_ok, meta = pcall(dofile, self.path .. "/_meta.lua")
+    local lines = {
+        "kouchiyomi " .. tostring(meta_ok and meta and meta.version or "?"),
+        "Server: " .. ((self.settings.server_url ~= "" and self.settings.server_url) or "not set")
+            .. (self.api and "" or " (no API token)"),
+        "Online: " .. tostring(NetworkMgr:isOnline()),
+        "Download folder: " .. tostring(self:getDownloadDir() or "?"),
+    }
+    local ui = self.ui
+    local file = ui and ui.document and ui.document.file
+    if file then
+        local id = self.sync:getOrMatchBook(file)
+        table.insert(lines, "")
+        table.insert(lines, "Open file: " .. file)
+        table.insert(lines, "Linked to Uchiyomi book: " .. tostring(id or "NOT LINKED"))
+        table.insert(lines, "Inside download folder: " .. tostring(self.sync:isUnderDownloadDir(file)))
+        if self.autolink_failure then table.insert(lines, "Auto-link: " .. self.autolink_failure) end
+        table.insert(lines, "End-of-chapter hook installed: " .. tostring(ui.status ~= nil and ui.status.orig_onEndOfBook ~= nil))
+        table.insert(lines, "Last end-of-chapter outcome: " .. tostring(self.last_end_of_chapter or "none yet in this chapter"))
+        local page = ui.view and ui.view.state and ui.view.state.page
+        local total = ui.document.getPageCount and ui.document:getPageCount()
+        table.insert(lines, "Page: " .. tostring(page) .. " / " .. tostring(total))
+    else
+        table.insert(lines, "")
+        table.insert(lines, "No document open.")
+    end
+    local n = 0
+    for _ in pairs(self.settings.matched_books_cache or {}) do n = n + 1 end
+    table.insert(lines, "")
+    table.insert(lines, "Linked files known: " .. n)
+    table.insert(lines, "Pending offline progress: " .. self.sync:countOfflineBuffer())
+    table.insert(lines, "Pending offline bookmarks: " .. self.bookmarks:countOffline())
+    local text = table.concat(lines, "\n")
+    logger.info("kouchiyomi diagnostics:\n" .. text)
+    return text
+end
+
 function Plugin:notify(message, kind)
     if kind == "error" then logger.warn("kouchiyomi:", message) else logger.info("kouchiyomi:", message) end
     UIManager:show(InfoMessage:new{ text = "[Uchiyomi] " .. message, timeout = kind == "error" and 5 or 3 })
@@ -182,22 +222,67 @@ end
 function Plugin:onReaderReady()
     local ui = self.ui
     local filepath = ui and ui.document and ui.document.file
+    local _ = i18n._
+    local T = i18n.T
     self.is_active = true
     self.current_book_id = filepath and self.sync:getOrMatchBook(filepath) or nil
     self.last_pushed_page = ui and ui.view and ui.view.state and ui.view.state.page or 1
+    self.last_end_of_chapter = nil
+    local NetworkMgr = require("ui/network/manager")
 
-    -- End-of-book hook: offer the next chapter from Uchiyomi.
+    -- A chapter that reached the device some other way (syncthing, USB) is
+    -- not linked yet; try to bind it by folder and file name.
+    if not self.current_book_id and filepath and self.api and self.sync:isUnderDownloadDir(filepath) and NetworkMgr:isOnline() then
+        local ok, id, book_or_err = pcall(self.sync.autoLinkFile, self.sync, filepath)
+        if ok and id then
+            self.current_book_id = id
+            self:notify(T(_("Linked to Uchiyomi: %1"), Sync.book_title(book_or_err)), "info")
+        else
+            self.autolink_failure = ok and tostring(book_or_err) or ("error: " .. tostring(id))
+            logger.warn("kouchiyomi: auto-link failed for", filepath, self.autolink_failure)
+        end
+    end
+
+    -- End-of-book hook: mark the chapter read and offer the next one. Every
+    -- way this can decline is recorded (Tools > Uchiyomi > Diagnostics).
     if ui.status and not ui.status.orig_onEndOfBook then
         ui.status.orig_onEndOfBook = ui.status.onEndOfBook
         ui.status.onEndOfBook = function(this, ...)
+            local args = { ... }
+            local show_native = function()
+                if this.orig_onEndOfBook then this.orig_onEndOfBook(this, unpack(args)) end
+            end
             if self.is_active and self.current_book_id then
-                local args = { ... }
-                local show_native = function()
-                    if this.orig_onEndOfBook then this.orig_onEndOfBook(this, unpack(args)) end
+                local ok, handled, reason = pcall(self.sync.promptNextChapter, self.sync, ui, show_native)
+                if ok and handled then
+                    self.last_end_of_chapter = "handled"
+                    return true
                 end
-                local ok, handled = pcall(self.sync.promptNextChapter, self.sync, ui, show_native)
-                if ok and handled then return true end
-                if not ok then logger.warn("kouchiyomi: end-of-chapter handler failed:", tostring(handled)) end
+                if not ok then
+                    self.last_end_of_chapter = "error: " .. tostring(handled)
+                    logger.warn("kouchiyomi: end-of-chapter handler failed:", tostring(handled))
+                    self:notify(T(_("End-of-chapter handling failed: %1"), tostring(handled)), "error")
+                else
+                    self.last_end_of_chapter = "declined: " .. tostring(reason)
+                end
+            elseif self.is_active and self.api and self.sync:isUnderDownloadDir(ui.document and ui.document.file) then
+                self.last_end_of_chapter = "not linked"
+                local ButtonDialog = require("ui/widget/buttondialog")
+                local dialog
+                dialog = ButtonDialog:new{
+                    title = _("This chapter is not linked to Uchiyomi, so it cannot be marked read there or followed by the next chapter.")
+                        .. (self.autolink_failure and ("\n(" .. self.autolink_failure .. ")") or ""),
+                    buttons = {
+                        { { text = _("Link it now..."), is_enter_default = true,
+                            callback = function() UIManager:close(dialog); self.sync:matchCurrentBook() end } },
+                        { { text = _("Default action"), callback = function() UIManager:close(dialog); show_native() end },
+                          { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+                    },
+                }
+                UIManager:show(dialog)
+                return true
+            else
+                self.last_end_of_chapter = self.is_active and "not a Uchiyomi chapter" or "plugin inactive"
             end
             if this.orig_onEndOfBook then return this.orig_onEndOfBook(this, ...) end
         end

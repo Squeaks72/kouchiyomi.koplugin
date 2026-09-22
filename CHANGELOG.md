@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-09-22
+- Chapters that reached the device outside the plugin (syncthing, USB, another client) were never linked to Uchiyomi, so finishing one fell through to KOReader's own end-of-document dialog with no explanation. Files inside the download folder are now auto-linked on open by series folder and chapter title/number.
+- End of chapter on an unlinked chapter in the download folder now says so and offers "Link it now..." instead of silently showing KOReader's dialog. A handler error is shown on screen, not just logged.
+- Tools ▸ Uchiyomi ▸ Diagnostics: version, server, open file, link state, hook state and the outcome of the last end-of-chapter, for bug reports.
+
 ## 0.3.0 — 2026-09-22
 - End of chapter (downloaded): turning past the last page now always marks the chapter finished in KOReader and read on Uchiyomi (the push is buffered and retried if it fails), then offers the next chapter. A server error no longer falls through to KOReader's own end-of-document dialog. The handler is guarded so a failure can never block the page turn.
 - End of chapter (streaming): turning past the last page marks the chapter read immediately and offers the next chapter, instead of waiting until the viewer is closed. Offers "Open" when the next chapter is already downloaded.

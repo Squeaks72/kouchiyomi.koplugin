@@ -90,6 +90,14 @@ function Menu:createMainMenu()
     table.insert(items, { text = _("Downloads"), keep_menu_open = true, sub_item_table_func = function() return self:downloadsMenu() end })
     table.insert(items, { text = _("Layout"), keep_menu_open = true, sub_item_table_func = function() return self:layoutMenu() end })
     table.insert(items, { text = _("Plugin update"), keep_menu_open = true, sub_item_table_func = function() return self:updateMenu() end })
+    table.insert(items, {
+        text = _("Diagnostics"),
+        keep_menu_open = true,
+        callback = function()
+            local TextViewer = require("ui/widget/textviewer")
+            UIManager:show(TextViewer:new{ title = _("Uchiyomi diagnostics"), text = p:diagnosticsText() })
+        end,
+    })
     return items
 end
 

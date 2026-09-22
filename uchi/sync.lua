@@ -48,6 +48,77 @@ function Sync:getOrMatchBook(filepath)
     return nil, "Not linked"
 end
 
+--- True when a file lives inside the plugin's download folder.
+function Sync:isUnderDownloadDir(filepath)
+    if not filepath then return false end
+    local dir = self.plugin.settings.download_dir
+    if not dir or dir == "" then
+        local home = G_reader_settings and G_reader_settings:readSetting("home_dir")
+        if not home or home == "" then return false end
+        dir = home .. "/Uchiyomi"
+    end
+    dir = dir:gsub("/+$", "")
+    return filepath:sub(1, #dir + 1) == dir .. "/"
+end
+
+local function norm_name(s)
+    s = sanitize_filename(tostring(s or "")):lower():gsub("%s+", " ")
+    return s
+end
+
+--- Best effort: bind a file that reached the device outside the plugin
+-- (syncthing, USB, another client) to its Uchiyomi chapter. The parent
+-- folder is matched against series titles, the file name against chapter
+-- titles, then against chapter numbers. Returns the book id, or nil, reason.
+function Sync:autoLinkFile(filepath)
+    if not self.plugin.api or not filepath then return nil, "not configured" end
+    local dir, fname = filepath:match("^(.*)/([^/]+)$")
+    if not fname then return nil, "no file name" end
+    local stem = fname:gsub("%.%w+$", "")
+    local folder = dir and dir:match("([^/]+)$") or ""
+    if folder == "" then return nil, "no series folder" end
+
+    local res, err = self.plugin.api:search_series(folder, 0, 20)
+    if type(res) ~= "table" then return nil, "series search failed: " .. tostring(err) end
+    local list = res.content or res
+    local candidates = {}
+    for _i, s in ipairs(list) do
+        if s.id and norm_name((s.metadata and s.metadata.title) or s.name) == norm_name(folder) then
+            table.insert(candidates, s)
+        end
+    end
+    if #candidates == 0 and #list == 1 and list[1].id then candidates[1] = list[1] end
+    if #candidates == 0 then return nil, "no series on the server is called '" .. folder .. "'" end
+
+    local want_num = tonumber(stem:match("(%d+%.?%d*)%s*$") or stem:match("[Cc]h%a*%.?%s*(%d+%.?%d*)"))
+    for _i, series in ipairs(candidates) do
+        local books = self.plugin.api:get_all_series_books(series.id) or {}
+        local by_title, by_number, number_hits = nil, nil, 0
+        for _j, b in ipairs(books) do
+            if norm_name(book_title(b)) == norm_name(stem) or norm_name(b.name) == norm_name(stem) then
+                by_title = b
+                break
+            end
+            local n = tonumber(b.metadata and b.metadata.number) or tonumber(b.number)
+            if want_num and n and n == want_num then
+                by_number = b
+                number_hits = number_hits + 1
+            end
+        end
+        local book = by_title or (number_hits == 1 and by_number) or nil
+        if book then
+            local s_title = (series.metadata and series.metadata.title) or series.name
+            book.seriesTitle = (book.seriesTitle and book.seriesTitle ~= "") and book.seriesTitle or s_title
+            self.plugin.settings.matched_books_cache[filepath] = book.id
+            self.plugin:saveSettings()
+            pcall(Sidecar.saveBookMetadata, filepath, book, s_title, series)
+            logger.info("kouchiyomi: auto-linked", filepath, "->", book.id)
+            return book.id, book
+        end
+    end
+    return nil, "no chapter matching '" .. stem .. "' in " .. tostring((candidates[1].metadata and candidates[1].metadata.title) or candidates[1].name)
+end
+
 function Sync:getLocalPathForBookId(book_id)
     if not book_id then return nil end
     local target = tostring(book_id)
@@ -753,10 +824,10 @@ end
 -- offers the next chapter of the series. Returns true when we showed our own
 -- dialog, false to let KOReader's end-of-document action run.
 function Sync:promptNextChapter(ui, show_native)
-    if not ui or not ui.document then return false end
+    if not ui or not ui.document then return false, "no document" end
     local filepath = ui.document.file
     local book_id = filepath and self:getOrMatchBook(filepath)
-    if not book_id then return false end
+    if not book_id then return false, "not linked" end
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
     local ButtonDialog = require("ui/widget/buttondialog")
@@ -819,7 +890,7 @@ function Sync:promptNextChapter(ui, show_native)
     if not next_book then
         if code == 404 or code == nil then
             self.plugin:notify(_("Chapter marked read. This was the last chapter on the server."), "info")
-            return false
+            return false, "last chapter on the server"
         end
         -- Server unreachable or unhappy: behave as if offline rather than
         -- silently dropping the reader into KOReader's own dialog.
