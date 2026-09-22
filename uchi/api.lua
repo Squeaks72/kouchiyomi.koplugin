@@ -215,11 +215,22 @@ function UchiyomiAPI:login(username, password, totp)
     local saved = self.api_token
     self.api_token = nil
     local body = { username = username, password = password }
-    if totp and totp ~= "" then body.totp = totp end
+    if totp and totp ~= "" then
+        -- The server reads the one-time code from `code` (its OpenAPI file says
+        -- `totp`; send both). Spaces people type between digit groups are dropped.
+        local clean = tostring(totp):gsub("%s+", "")
+        body.code = clean
+        body.totp = clean
+    end
     local res, err, code = self:request("/auth/login", "POST", body)
     self.api_token = saved
     if not res or type(res) ~= "table" or not res.accessToken then
-        if code == 429 then err = "Too many login attempts, wait a few minutes" end
+        if code == 429 then err = "Too many login attempts, wait a few minutes"
+        elseif err == "totp_required" then err = "This account has 2FA enabled: enter the current 6-digit code"
+        elseif err == "totp_invalid" or err == "Incorrect authentication code." then err = "The 2FA code was rejected; codes expire every 30 seconds, try a fresh one"
+        elseif err == "invalid_credentials" then err = "Wrong username or password"
+        elseif code == 423 then err = "Account temporarily locked after too many failed attempts; wait 15 minutes"
+        end
         return nil, err or "Login failed"
     end
     self.session_token = res.accessToken

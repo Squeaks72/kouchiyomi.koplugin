@@ -356,7 +356,7 @@ function Menu:promptSetup(on_success)
             { text = p.settings.server_url or "https://", hint = _("Server URL, e.g. https://uchiyomi.example.com") },
             { text = p.settings.username or "", hint = _("Username") },
             { hint = _("Password"), text_type = "password" },
-            { hint = _("2FA code (if enabled)") },
+            { hint = _("2FA code (only if enabled on the account)"), input_type = "number" },
         },
         buttons = { {
             { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
