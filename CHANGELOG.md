@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.3 — 2026-09-22
+- Fix: with kokomga installed alongside, the end of a chapter always showed KOReader's own dialog. kokomga loads first (alphabetical) and hooks the same handler with the same marker field, so ours stood down. Ours now wraps whatever handler is present and runs first; a fallback also catches the event as a reader module and closes KOReader's dialog if it slipped through. Diagnostics names the other plugin.
+
 ## 0.4.2 — 2026-09-22
 - Auto-advance (Reading setting, on by default): turning past the last page opens the next chapter with no dialog when it is on the device, downloads it first when it is only on the server (or streams it when streaming is your open mode), or waits for a running read-ahead. The chapter-end dialog still appears when offline without the chapter, on the last chapter, or when the server fails.
 

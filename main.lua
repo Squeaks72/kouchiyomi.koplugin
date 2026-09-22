@@ -172,7 +172,19 @@ function Plugin:diagnosticsText()
         table.insert(lines, "Linked to Uchiyomi book: " .. tostring(id or "NOT LINKED"))
         table.insert(lines, "Inside download folder: " .. tostring(self.sync:isUnderDownloadDir(file)))
         if self.autolink_failure then table.insert(lines, "Auto-link: " .. self.autolink_failure) end
-        table.insert(lines, "End-of-chapter hook installed: " .. tostring(ui.status ~= nil and ui.status.orig_onEndOfBook ~= nil))
+        table.insert(lines, "End-of-chapter hook installed: " .. tostring(ui.status ~= nil and ui.status._kouchiyomi_hooked == true))
+        if ui.status and ui.status.orig_onEndOfBook ~= nil then
+            table.insert(lines, "ANOTHER plugin also hooks end of book (kokomga?) -- ours now runs first")
+        end
+        pcall(function()
+            local PluginLoader = require("pluginloader")
+            local names = {}
+            for name in pairs(PluginLoader.loaded_plugins or {}) do
+                if name:lower():find("komga") or name:lower():find("uchi") then table.insert(names, name) end
+            end
+            table.sort(names)
+            table.insert(lines, "Related plugins loaded: " .. table.concat(names, ", "))
+        end)
         table.insert(lines, "Last end-of-chapter outcome: " .. tostring(self.last_end_of_chapter or "none yet in this chapter"))
         local page = ui.view and ui.view.state and ui.view.state.page
         local total = ui.document.getPageCount and ui.document:getPageCount()
@@ -253,51 +265,32 @@ function Plugin:onReaderReady()
         end
     end
 
-    -- End-of-book hook: mark the chapter read and offer the next one. Every
-    -- way this can decline is recorded (Tools > Uchiyomi > Diagnostics).
-    if ui.status and not ui.status.orig_onEndOfBook then
-        ui.status.orig_onEndOfBook = ui.status.onEndOfBook
+    -- End-of-book hook. We wrap whatever handler is on the status module at
+    -- this moment, which may already be another plugin's wrapper (kokomga
+    -- uses the very same trick and loads before us alphabetically); ours
+    -- runs first and only defers to it when we decline. Every way this can
+    -- decline is recorded (Tools > Uchiyomi > Diagnostics).
+    if ui.status and not ui.status._kouchiyomi_hooked then
+        ui.status._kouchiyomi_hooked = true
+        local previous = ui.status.onEndOfBook
+        ui.status._kouchiyomi_previous_onEndOfBook = previous
         ui.status.onEndOfBook = function(this, ...)
             local args = { ... }
             local show_native = function()
-                if this.orig_onEndOfBook then this.orig_onEndOfBook(this, unpack(args)) end
+                if previous then previous(this, unpack(args)) end
             end
-            if self.is_active and self.current_book_id then
-                local ok, handled, reason = pcall(self.sync.promptNextChapter, self.sync, ui, show_native)
-                if ok and handled then
-                    self.last_end_of_chapter = "handled"
-                    return true
-                end
-                if not ok then
-                    self.last_end_of_chapter = "error: " .. tostring(handled)
-                    logger.warn("kouchiyomi: end-of-chapter handler failed:", tostring(handled))
-                    self:notify(T(_("End-of-chapter handling failed: %1"), tostring(handled)), "error")
-                else
-                    self.last_end_of_chapter = "declined: " .. tostring(reason)
-                end
-            elseif self.is_active and self.api and self.sync:isUnderDownloadDir(ui.document and ui.document.file) then
-                self.last_end_of_chapter = "not linked"
-                local ButtonDialog = require("ui/widget/buttondialog")
-                local dialog
-                dialog = ButtonDialog:new{
-                    title = _("This chapter is not linked to Uchiyomi, so it cannot be marked read there or followed by the next chapter.")
-                        .. (self.autolink_failure and ("\n(" .. self.autolink_failure .. ")") or ""),
-                    buttons = {
-                        { { text = _("Link it now..."), is_enter_default = true,
-                            callback = function() UIManager:close(dialog); self.sync:matchCurrentBook() end } },
-                        { { text = _("Default action"), callback = function() UIManager:close(dialog); show_native() end },
-                          { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
-                    },
-                }
-                UIManager:show(dialog)
+            if self:_handleEndOfBook(ui, show_native) then
+                -- handled: the event stops here and onEndOfBook below never
+                -- runs, so leave no marker behind for the next event
+                self._eob_fell_through = nil
                 return true
-            else
-                self.last_end_of_chapter = self.is_active and "not a Uchiyomi chapter" or "plugin inactive"
             end
-            if this.orig_onEndOfBook then return this.orig_onEndOfBook(this, ...) end
+            -- Falling through: the next handler (another plugin's or
+            -- KOReader's own) runs; onEndOfBook below must not run again.
+            self._eob_fell_through = true
+            if previous then return previous(this, ...) end
         end
     end
-
     if not self.current_book_id then return end
 
     -- Reading direction from the series metadata (manga => RTL).
@@ -370,6 +363,67 @@ function Plugin:_removeFooterIndicator()
         pcall(footer.removeAdditionalFooterContent, footer, self._footer_fn)
     end
     self._footer_fn = nil
+end
+
+--- The end-of-chapter decision. Returns true when we took over (our dialog
+-- or auto-advance), false to let KOReader's end-of-document action run.
+function Plugin:_handleEndOfBook(ui, show_native)
+    local _ = i18n._
+    local T = i18n.T
+    if self.is_active and self.current_book_id then
+        local ok, handled, reason = pcall(self.sync.promptNextChapter, self.sync, ui, show_native)
+        if ok and handled then
+            self.last_end_of_chapter = "handled"
+            return true
+        end
+        if not ok then
+            self.last_end_of_chapter = "error: " .. tostring(handled)
+            logger.warn("kouchiyomi: end-of-chapter handler failed:", tostring(handled))
+            self:notify(T(_("End-of-chapter handling failed: %1"), tostring(handled)), "error")
+        else
+            self.last_end_of_chapter = "declined: " .. tostring(reason)
+        end
+        return false
+    elseif self.is_active and self.api and self.sync:isUnderDownloadDir(ui.document and ui.document.file) then
+        self.last_end_of_chapter = "not linked"
+        local ButtonDialog = require("ui/widget/buttondialog")
+        local dialog
+        dialog = ButtonDialog:new{
+            title = _("This chapter is not linked to Uchiyomi, so it cannot be marked read there or followed by the next chapter.")
+                .. (self.autolink_failure and ("\n(" .. self.autolink_failure .. ")") or ""),
+            buttons = {
+                { { text = _("Link it now..."), is_enter_default = true,
+                    callback = function() UIManager:close(dialog); self.sync:matchCurrentBook() end } },
+                { { text = _("Default action"), callback = function() UIManager:close(dialog); show_native() end },
+                  { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+            },
+        }
+        UIManager:show(dialog)
+        return true
+    end
+    self.last_end_of_chapter = self.is_active and "not a Uchiyomi chapter" or "plugin inactive"
+    return false
+end
+
+--- Second line of defence: the EndOfBook event also reaches us as a reader
+-- module, after the status module. If our wrapper above never ran (another
+-- plugin replaced the handler after us, or a KOReader change), handle it
+-- here and take KOReader's own dialog down from under ours.
+function Plugin:onEndOfBook()
+    if self._eob_fell_through ~= nil then
+        -- our wrapper ran for this event (it either handled it, in which case
+        -- the event would not have reached us, or deliberately fell through)
+        self._eob_fell_through = nil
+        return
+    end
+    if not self.is_active then return end
+    self.last_end_of_chapter = "wrapper bypassed; handled by fallback"
+    logger.warn("kouchiyomi: end-of-book wrapper was bypassed, using the fallback path")
+    local top = UIManager:getTopmostVisibleWidget()
+    local native = top and top.name == "end_document" and top or nil
+    local handled = self:_handleEndOfBook(self.ui, function() end)
+    if handled and native then UIManager:close(native) end
+    return handled or nil
 end
 
 function Plugin:_push()
