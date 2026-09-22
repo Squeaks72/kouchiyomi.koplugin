@@ -89,6 +89,7 @@ function Menu:createMainMenu()
     table.insert(items, { text = _("Sync"), keep_menu_open = true, sub_item_table_func = function() return self:syncMenu() end })
     table.insert(items, { text = _("Downloads"), keep_menu_open = true, sub_item_table_func = function() return self:downloadsMenu() end })
     table.insert(items, { text = _("Layout"), keep_menu_open = true, sub_item_table_func = function() return self:layoutMenu() end })
+    table.insert(items, { text = _("Plugin update"), keep_menu_open = true, sub_item_table_func = function() return self:updateMenu() end })
     return items
 end
 
@@ -301,6 +302,56 @@ function Menu:layoutMenu()
             text = _("Clear cover cache"),
             keep_menu_open = true,
             callback = function() p.cache:clear(); p:notify(_("Cover cache cleared."), "info") end,
+        },
+    }
+end
+
+function Menu:updateMenu()
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local p = self.plugin
+    return {
+        {
+            text_func = function()
+                local seen = p.settings.update_latest_seen
+                local cur = p.updater:localVersion()
+                if seen and p.updater.isNewer(seen, cur) then return T(_("Installed %1 - %2 available"), cur, seen) end
+                return T(_("Installed version: %1"), cur)
+            end,
+            enabled = false,
+        },
+        {
+            text = _("Check for updates now"),
+            keep_menu_open = true,
+            callback = function(tm)
+                p.updater:promptUpdate(true)
+                if tm and tm.updateItems then tm:updateItems() end
+            end,
+        },
+        {
+            text = _("Re-install latest from GitHub"),
+            help_text = _("Downloads the tracked branch even if the version number has not changed."),
+            keep_menu_open = true,
+            callback = function()
+                local NetworkMgr = require("ui/network/manager")
+                NetworkMgr:runWhenOnline(function() p.updater:install() end)
+            end,
+        },
+        {
+            text = _("Check automatically (once a day)"),
+            checked_func = function() return p.settings.update_auto_check ~= false end,
+            keep_menu_open = true,
+            callback = function() p.settings.update_auto_check = not (p.settings.update_auto_check ~= false); p:saveSettings() end,
+        },
+        {
+            text_func = function() return (p.settings.github_token ~= "" ) and _("GitHub token: set") or _("GitHub token: none (needed while the repo is private)") end,
+            keep_menu_open = true,
+            callback = function(tm) self:promptInput(_("GitHub token (fine-grained, Contents: read)"), "github_token", false, tm) end,
+        },
+        {
+            text_func = function() return T(_("Repository: %1 @ %2"), p.settings.update_repo or "", p.settings.update_ref or "main") end,
+            keep_menu_open = true,
+            callback = function(tm) self:promptInput(_("Repository (owner/name)"), "update_repo", false, tm) end,
         },
     }
 end

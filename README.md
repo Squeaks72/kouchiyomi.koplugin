@@ -61,6 +61,14 @@ Notes attached to bookmarks are not synced (no write path in Uchiyomi's API).
 While streaming, bookmarks are unavailable (KOReader's image viewer is not a
 document); download the chapter for the full experience.
 
+## Updating
+
+Tools ▸ Uchiyomi ▸ **Plugin update** ▸ *Check for updates now* fetches the
+latest files straight from this repository and restarts KOReader. The plugin
+also checks once a day when online and shows a notice if a newer version exists.
+A private fork needs a fine-grained GitHub token (Contents: read) entered under
+the same menu; this public repository needs none.
+
 ## Settings file
 
 `koreader/settings/kouchiyomi.lua`. Covers are cached in

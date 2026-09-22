@@ -23,6 +23,7 @@ local Sync = require("uchi/sync")
 local Bookmarks = require("uchi/bookmarks")
 local Stream = require("uchi/stream")
 local SettingsMenu = require("uchi/menu")
+local Updater = require("uchi/updater")
 local i18n = require("uchi/i18n")
 
 local Plugin = WidgetContainer:extend{
@@ -59,6 +60,12 @@ local DEFAULT_SETTINGS = {
     show_covers = true,
     view_mode = "list",
     list_rows = 5,
+
+    update_repo = "Squeaks72/kouchiyomi.koplugin",
+    update_ref = "main",
+    github_token = "",
+    update_auto_check = true,
+    update_last_check = 0,
     grid_columns = 3,
     grid_rows = 3,
 
@@ -80,8 +87,11 @@ function Plugin:init()
     self.bookmarks = Bookmarks:new(self)
     self.stream = Stream:new(self)
     self.menu = SettingsMenu:new(self)
+    self.updater = Updater:new(self)
     self.ui.menu:registerToMainMenu(self)
     self:registerActions()
+    local NetworkMgr = require("ui/network/manager")
+    if NetworkMgr:isOnline() then self.updater:maybeAutoCheck() end
     logger.info("kouchiyomi: initialised")
 end
 
@@ -261,6 +271,7 @@ function Plugin:onAnnotationsModified(items)
 end
 
 function Plugin:onNetworkConnected()
+    if self.updater then self.updater:maybeAutoCheck() end
     if not self.api then return end
     UIManager:scheduleIn(2, function()
         if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end

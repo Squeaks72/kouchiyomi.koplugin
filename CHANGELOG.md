@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.0 — 2026-09-22
+- Self-updater: Tools ▸ Uchiyomi ▸ Plugin update checks GitHub (daily when online, or on demand), installs the latest files and restarts KOReader. Optional token for private forks.
+
 ## 0.1.1 — 2026-09-22
 - Fix: 2FA login sent the one-time code in the wrong field (`totp` instead of `code`), so accounts with 2FA could not sign in. Spaces in the code are now ignored and login errors are spelled out.
 
