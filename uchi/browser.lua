@@ -9,6 +9,7 @@ local UchiListMenu = require("uchi/list_menu")
 local UchiGridMenu = require("uchi/grid_menu")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
+local Labels = require("uchi/labels")
 
 local _base_list_recalc = UchiListMenu._recalculateDimen
 local _base_list_update = UchiListMenu.updateItems
@@ -39,10 +40,6 @@ end
 
 local function series_title(series)
     return (series.metadata and series.metadata.title ~= "" and series.metadata.title) or series.name or "?"
-end
-
-local function book_title(book)
-    return (book.metadata and book.metadata.title ~= "" and book.metadata.title) or book.name or "?"
 end
 
 local function toggleTitleButtons(browser, opts)
@@ -342,21 +339,6 @@ end
 -- Home
 -- ---------------------------------------------------------------------------
 
-function UchiBrowser:getHomeItemTable()
-    local _ = self.plugin.i18n._
-    return {
-        { text = _("Keep reading"),           callback = function() self:showKeepReading() end },
-        { text = _("New chapters (favourites)"), callback = function() self:showUpdates() end },
-        { text = _("Favourites"),             callback = function() self:showFavorites() end },
-        { text = _("Bookmarks"),              callback = function() self:showBookmarks() end },
-        { text = _("Recently updated series"), callback = function() self:showAllSeries("updated,desc", _("Recently updated series")) end },
-        { text = _("All series"),             callback = function() self:showAllSeries("title,asc", _("All series")) end },
-        { text = _("Libraries"),              callback = function() self:showLibraries() end },
-        { text = _("Search..."),              callback = function() self:promptSearch() end },
-        { text = _("Downloaded chapters (offline)"), callback = function() self:showOfflineLibrary() end },
-    }
-end
-
 local function series_item(self, series)
     return {
         text = series_title(series),
@@ -368,15 +350,143 @@ local function series_item(self, series)
 end
 
 local function book_item(self, book, with_series)
-    local text = book_title(book)
-    if with_series and book.seriesTitle then text = book.seriesTitle .. " - " .. text end
     return {
-        text = text,
+        text = Labels.display(book, with_series),
         callback = function() self:onBookSelect(book) end,
-        cover_id = book.id,
+        cover_id = self.plugin.settings.show_covers ~= false and book.id or nil,
         cover_type = "book",
         book = book,
     }
+end
+
+local function keep_reading_item(self, b)
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local item = book_item(self, b, true)
+    local rp = b.readProgress
+    local total = b.media and tonumber(b.media.pagesCount) or 0
+    local label
+    if type(rp) == "table" and not rp.completed and (tonumber(rp.page) or 0) > 0 then
+        label = total > 0 and T(_("page %1 of %2"), rp.page, total) or T(_("page %1"), rp.page)
+    else
+        label = _("next up")
+    end
+    item.text = item.text .. "  [" .. label .. "]"
+    return item
+end
+
+--- Home data: Uchiyomi's "Keep reading" rail plus the next unread chapter
+-- of each favourite that gained chapters. Cached briefly so returning from
+-- a sub-view does not hit the server again.
+function UchiBrowser:_homeData(force)
+    local p = self.plugin
+    local cache = p._home_cache
+    if not force and cache and os.time() - cache.ts < 120 then return cache end
+    local data = { ts = os.time(), on_deck = {}, fresh = {} }
+    local home = p.api:get_home()
+    if type(home) == "table" and type(home.onDeck) == "table" then
+        data.on_deck = home.onDeck
+    else
+        local hist = self:_keepReadingFromHistory()
+        if type(hist) == "table" then data.on_deck = hist.content or {} end
+    end
+    local updates = p.api:get_updates()
+    if type(updates) == "table" then
+        local n = 0
+        for _i, u in ipairs(updates.content or updates) do
+            if u.series then
+                local book = p.sync:getNextUnreadBook(u.series)
+                if book then
+                    book.__series = u.series
+                    book.seriesTitle = (book.seriesTitle ~= nil and book.seriesTitle ~= "") and book.seriesTitle or series_title(u.series)
+                    book.__new = tonumber(u.newCount) or 0
+                    table.insert(data.fresh, book)
+                    n = n + 1
+                    if n >= 8 then break end
+                end
+            end
+        end
+    end
+    p._home_cache = data
+    return data
+end
+
+function UchiBrowser:_reloadHome(force)
+    if force then self.plugin._home_cache = nil end
+    self:init()
+    self:switchItemTable(self.catalog_title, self.item_table)
+    toggleTitleButtons(self, nil)
+end
+
+function UchiBrowser:getHomeItemTable()
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local p = self.plugin
+    local NetworkMgr = require("ui/network/manager")
+    local online = p.api ~= nil and NetworkMgr:isOnline()
+    local items = {}
+    local function header(text) table.insert(items, { text = text, is_header = true, select_enabled = false }) end
+    local function note(text) table.insert(items, { text = text, select_enabled = false }) end
+
+    local pending = p.sync:countOfflineBuffer() + p.bookmarks:countOffline()
+    if pending > 0 then
+        table.insert(items, {
+            text = T(_("%1 change(s) waiting to sync  (tap to sync now)"), pending),
+            callback = function()
+                NetworkMgr:runWhenOnline(function()
+                    p.sync:flushOfflineProgress(true)
+                    p.bookmarks:flushOffline()
+                    self:_reloadHome(true)
+                end)
+            end,
+        })
+    end
+
+    if online then
+        local ok, data = pcall(self._homeData, self)
+        if ok and data then
+            if p.settings.show_covers ~= false then
+                local covers = {}
+                for _i, b in ipairs(data.on_deck) do table.insert(covers, b) end
+                for _i, b in ipairs(data.fresh) do table.insert(covers, b) end
+                pcall(p.cache.prefetchCovers, p.cache, covers, "book")
+            end
+            header(_("Keep reading"))
+            if #data.on_deck == 0 then
+                note(_("Nothing in progress. Open a chapter to start."))
+            else
+                for _i, b in ipairs(data.on_deck) do table.insert(items, keep_reading_item(self, b)) end
+            end
+            if #data.fresh > 0 then
+                header(_("New in favourites"))
+                for _i, b in ipairs(data.fresh) do
+                    local item = book_item(self, b, true)
+                    if b.__new > 0 then item.text = item.text .. "  [" .. T(_("+%1 new"), b.__new) .. "]" end
+                    table.insert(items, item)
+                end
+            end
+        else
+            logger.warn("kouchiyomi: home failed:", tostring(data))
+            note(_("Could not load Keep reading: ") .. tostring(data))
+        end
+        header(_("Browse"))
+        table.insert(items, { text = _("New chapters (favourites)"), callback = function() self:showUpdates() end })
+        table.insert(items, { text = _("Favourites"),             callback = function() self:showFavorites() end })
+        table.insert(items, { text = _("Bookmarks"),              callback = function() self:showBookmarks() end })
+        table.insert(items, { text = _("Recently updated series"), callback = function() self:showAllSeries("updated,desc", _("Recently updated series")) end })
+        table.insert(items, { text = _("All series"),             callback = function() self:showAllSeries("title,asc", _("All series")) end })
+        table.insert(items, { text = _("Libraries"),              callback = function() self:showLibraries() end })
+        table.insert(items, { text = _("Search..."),              callback = function() self:promptSearch() end })
+        table.insert(items, { text = _("Downloaded chapters (offline)"), callback = function() self:showOfflineLibrary() end })
+        table.insert(items, { text = _("Refresh"),                callback = function() self:_reloadHome(true) end })
+    else
+        header(_("Offline"))
+        table.insert(items, { text = _("Downloaded chapters"), callback = function() self:showOfflineLibrary() end })
+        table.insert(items, { text = _("Connect to Wi-Fi and load Keep reading"), callback = function()
+            NetworkMgr:runWhenOnline(function() self:_reloadHome(true) end)
+        end })
+    end
+    return items
 end
 
 -- ---------------------------------------------------------------------------
@@ -479,41 +589,6 @@ function UchiBrowser:showUpdates()
         end,
         cover_type = "book",
         empty_text = _("Every chapter of your favourites is read."),
-    }
-end
-
---- Uchiyomi's "Keep reading" rail (/api/home onDeck): for each series read
--- lately, the chapter you are part-way through or the next unread one.
--- Falls back to the reading history on servers without that endpoint.
-function UchiBrowser:showKeepReading()
-    if not self.plugin.api then return end
-    local _ = self.plugin.i18n._
-    local T = self.plugin.i18n.T
-    self:_loadCatalog{
-        title = _("Keep reading"),
-        fetch_func = function()
-            local home, err = self.plugin.api:get_home()
-            if type(home) == "table" and type(home.onDeck) == "table" then
-                return { content = home.onDeck, totalPages = 1 }
-            end
-            if home == nil and err then logger.warn("kouchiyomi: /api/home failed, using history:", tostring(err)) end
-            return self:_keepReadingFromHistory()
-        end,
-        item_builder = function(b)
-            local item = book_item(self, b, true)
-            local rp = b.readProgress
-            local total = b.media and tonumber(b.media.pagesCount) or 0
-            local label
-            if type(rp) == "table" and not rp.completed and (tonumber(rp.page) or 0) > 0 then
-                label = total > 0 and T(_("page %1 of %2"), rp.page, total) or T(_("page %1"), rp.page)
-            else
-                label = _("next up")
-            end
-            item.text = item.text .. "  [" .. label .. "]"
-            return item
-        end,
-        cover_type = "book",
-        empty_text = _("Nothing in progress. Open a chapter to start."),
     }
 end
 
@@ -808,7 +883,7 @@ function UchiBrowser:onBookSelect(book, goto_page)
         local ButtonDialog = require("ui/widget/buttondialog")
         local dialog
         dialog = ButtonDialog:new{
-            title = book_title(book),
+            title = Labels.display(book, true),
             buttons = {
                 { { text = _("Download & open"), is_enter_default = true, callback = function() UIManager:close(dialog); self:_download(book, true, goto_page) end } },
                 { { text = _("Stream"), callback = function() UIManager:close(dialog); self:_stream(book, goto_page) end } },
@@ -930,7 +1005,7 @@ function UchiBrowser:onMenuHold(entry)
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
     local ButtonDialog = require("ui/widget/buttondialog")
-    local title = book_title(book)
+    local title = Labels.display(book, true)
     local downloaded = self.plugin.sync:isBookDownloaded(book)
     local is_read = type(book.readProgress) == "table" and book.readProgress.completed
     local dialog

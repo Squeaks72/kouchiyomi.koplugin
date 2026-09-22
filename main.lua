@@ -43,6 +43,9 @@ local DEFAULT_SETTINGS = {
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
     auto_reading_direction = true,
+    read_ahead = 1,                  -- chapters to download in the background after opening one
+    delete_read_on_advance = true,   -- drop a finished chapter's file once Uchiyomi has it as read
+    footer_sync_indicator = true,
 
     sync_progress = true,
     sync_bookmarks = true,
@@ -76,6 +79,7 @@ local DEFAULT_SETTINGS = {
     offline_bookmark_ops = {},
     bookmark_snapshots = {},
     next_chapter_cache = {},
+    pending_cleanup = {},
 }
 
 function Plugin:init()
@@ -182,6 +186,11 @@ function Plugin:diagnosticsText()
     table.insert(lines, "Linked files known: " .. n)
     table.insert(lines, "Pending offline progress: " .. self.sync:countOfflineBuffer())
     table.insert(lines, "Pending offline bookmarks: " .. self.bookmarks:countOffline())
+    table.insert(lines, "Background downloads running: " .. self.sync:backgroundJobCount())
+    local pc = 0
+    for _ in pairs(self.settings.pending_cleanup or {}) do pc = pc + 1 end
+    table.insert(lines, "Finished chapters awaiting cleanup: " .. pc)
+    table.insert(lines, "Read ahead: " .. tostring(self.settings.read_ahead) .. "  Delete when read: " .. tostring(self.settings.delete_read_on_advance ~= false))
     local text = table.concat(lines, "\n")
     logger.info("kouchiyomi diagnostics:\n" .. text)
     return text
@@ -323,10 +332,43 @@ function Plugin:onReaderReady()
         self.bookmarks:flushOffline()
         if not self.pending_goto_page then self.sync:pullProgress(ui, false) end
         self.bookmarks:syncOpenDocument(ui, false)
-        -- Remember which chapter follows this one, for when Wi-Fi is gone
-        -- by the time it is finished.
-        pcall(self.sync.cacheNextChapterFor, self.sync, self.current_book_id)
+        -- The chapter we just moved on from may go now that Uchiyomi has it.
+        pcall(self.sync.processCleanup, self.sync)
     end
+    self:_installFooterIndicator(ui)
+    -- Read ahead once the first page is on screen: remember the next chapter
+    -- (for when Wi-Fi is gone later) and fetch the next N in the background.
+    UIManager:scheduleIn(4, function()
+        if not self.is_active or not self.current_book_id then return end
+        if not NetworkMgr:isOnline() then return end
+        local ok, err = pcall(self.sync.readAhead, self.sync, self.current_book_id, self.settings.read_ahead)
+        if not ok then logger.warn("kouchiyomi: read-ahead failed:", tostring(err)) end
+    end)
+end
+
+--- "⇅3" (changes waiting to sync) and "↓1" (background downloads) in
+-- KOReader's footer, only while something is pending.
+function Plugin:_installFooterIndicator(ui)
+    if self.settings.footer_sync_indicator == false then return end
+    local footer = ui and ui.footer
+    if not footer or not footer.addAdditionalFooterContent or self._footer_fn then return end
+    self._footer_fn = function()
+        local parts = {}
+        local n = self.sync:countOfflineBuffer() + self.bookmarks:countOffline()
+        if n > 0 then table.insert(parts, "\u{21C5}" .. n) end
+        local jobs = self.sync:backgroundJobCount()
+        if jobs > 0 then table.insert(parts, "\u{2193}" .. jobs) end
+        return table.concat(parts, " ")
+    end
+    pcall(footer.addAdditionalFooterContent, footer, self._footer_fn)
+end
+
+function Plugin:_removeFooterIndicator()
+    local footer = self.ui and self.ui.footer
+    if self._footer_fn and footer and footer.removeAdditionalFooterContent then
+        pcall(footer.removeAdditionalFooterContent, footer, self._footer_fn)
+    end
+    self._footer_fn = nil
 end
 
 function Plugin:_push()
@@ -344,6 +386,7 @@ end
 
 function Plugin:onCloseDocument()
     self:_push()
+    self:_removeFooterIndicator()
     if self.current_book_id and self.ui then
         pcall(function() self.bookmarks:syncOpenDocument(self.ui, false) end)
     end
@@ -372,6 +415,10 @@ function Plugin:onNetworkConnected()
         end
         if self.settings.reconcile_on_connect ~= false then
             self.sync:reconcileDownloaded(false)
+        end
+        pcall(self.sync.processCleanup, self.sync)
+        if self.is_active and self.current_book_id then
+            pcall(self.sync.readAhead, self.sync, self.current_book_id, self.settings.read_ahead)
         end
     end)
 end

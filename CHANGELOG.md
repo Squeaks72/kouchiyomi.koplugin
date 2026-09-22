@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — 2026-09-22
+- Read ahead: after a chapter opens, the next N chapters (setting, default 1) are downloaded in a forked background process, so the reader never waits and the end-of-chapter prompt usually says "ready". Counts against the storage cap.
+- Cleanup: when you move on from a finished chapter, its file is deleted once Uchiyomi confirms it is read (setting, default on). Progress and bookmarks live on the server.
+- One chapter-end dialog for downloaded and streamed chapters: next chapter's cover, what was finished, what is next and its state (ready / downloading / not on device / last), with matching actions.
+- Reader footer shows "⇅N" while changes wait to sync and "↓N" while background downloads run (setting).
+- Browser home is now Uchiyomi's home: Keep reading first, then new chapters in favourites, then the browse entries. A pending-sync line appears on top when needed.
+- Chapter labels everywhere read like Uchiyomi: "One Piece · Ch. 944", "Vol. 3" for volume archives; a chapter's own title, when it has one, becomes the second line.
+
 ## 0.3.2 — 2026-09-22
 - Offline end of chapter no longer opens "the next downloaded file in the series", which skipped chapters when some were missing (944 → 947). Only the chapter Uchiyomi named as next is ever opened. The plugin now caches that answer every time a linked chapter is opened online.
 - When that chapter is not on the device (or is unknown), the dialog says so and offers "Turn on Wi-Fi and fetch it": KOReader's reconnect prompt, then the finished chapter is synced, the next one downloaded and opened.

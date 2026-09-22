@@ -9,10 +9,10 @@ Davis), reworked for Uchiyomi's native API.
 
 ## Features
 
-- **Browse**: keep reading (Uchiyomi's own rail: where you left off in each
-  series), next unread chapter of every favourite, favourites, server
-  bookmarks, recently updated, all series, per-library, search, and an
-  offline view of everything downloaded.
+- **Home like Uchiyomi's**: Keep reading (where you left off in each
+  series) first, then new chapters in your favourites, then browsing:
+  favourites, server bookmarks, recently updated, all series, per-library,
+  search, and an offline view of everything downloaded.
 - **Read your way**: tap a chapter to download it (default) or stream it from
   the server; the choice is a setting, or ask every time. Hold a chapter for
   download / stream / download this + next N / mark read or unread.
@@ -29,10 +29,15 @@ Davis), reworked for Uchiyomi's native API.
   runs automatically when Wi-Fi connects) copies progress and bookmarks into
   every downloaded chapter that is not currently open.
 - **Next chapter**: turning past the last page marks the chapter finished
-  (in KOReader and on Uchiyomi) and offers to open / download / stream the
-  next one. Offline, only the chapter Uchiyomi named as next is opened
-  (never a later file that would skip chapters); if it is missing, the
-  plugin offers to turn Wi-Fi on and fetch it.
+  (in KOReader and on Uchiyomi) and shows one chapter-end dialog: the next
+  chapter, its cover and whether it is ready, downloading or missing, with
+  open / download / stream actions. Offline, only the chapter Uchiyomi
+  named as next is opened (never a later file that would skip chapters);
+  if it is missing, the plugin offers to turn Wi-Fi on and fetch it.
+- **Read ahead & cleanup**: the next chapter(s) download quietly in the
+  background after one opens; a finished chapter's file is removed once
+  Uchiyomi confirms it is read. Both are settings under Reading.
+- **Footer**: "⇅N" while changes wait to sync, "↓N" while downloads run.
 - **Series actions**: favourite, download next unread N, mark all read.
 - Covers, list/grid views, series subfolders, storage cap, 18+ libraries opt-in.
 

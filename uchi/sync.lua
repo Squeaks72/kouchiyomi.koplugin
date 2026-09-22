@@ -11,11 +11,20 @@
 local logger = require("logger")
 local UIManager = require("ui/uimanager")
 local Sidecar = require("uchi/sidecar")
+local Labels = require("uchi/labels")
+local ChapterEnd = require("uchi/chapter_end")
+local FFIUtil = require("ffi/util")
 
 local Sync = {}
 
+-- Background downloads outlive a plugin instance (the reader is re-created
+-- for every document), so they live on the class: book_id -> job.
+Sync.jobs = {}
+Sync.live = nil   -- the most recently created plugin instance
+
 function Sync:new(plugin)
     local o = { plugin = plugin }
+    Sync.live = plugin
     return setmetatable(o, { __index = self })
 end
 
@@ -725,37 +734,8 @@ function Sync:downloadBook(book, series_title, on_success, on_failure, series)
         end)
         UIManager:close(msg)
         if ok then
-            self.plugin.settings.matched_books_cache[local_path] = book.id
-            self.plugin.settings.downloaded_books = self.plugin.settings.downloaded_books or {}
-            self.plugin.settings.downloaded_books[local_path] = os.time()
-            self.plugin:saveSettings()
-            pcall(Sidecar.saveBookMetadata, local_path, book, series_title, series)
-            os.rename(tmp_path, local_path)
-            -- Seed the sidecar with the server's progress and bookmarks so the
-            -- chapter opens where you left it on another device.
-            pcall(function()
-                local rp = book.readProgress
-                local total = book.media and book.media.pagesCount
-                if type(rp) == "table" and ((rp.page or 0) > 0 or rp.completed) then
-                    Sidecar.writeLocalProgress(local_path, rp.page, total, rp.completed)
-                end
-                if self.plugin.bookmarks and self.plugin.settings.sync_bookmarks then
-                    local all = self.plugin.bookmarks:fetchServerBookmarks()
-                    if all then self.plugin.bookmarks:syncClosedDocument(local_path, book.id, all[book.id] or {}) end
-                end
-            end)
-            self:downloadSeriesCoverIfMissing(book, final_dir, series_title)
-            self:enforceDownloadCap(local_path)
-            self.plugin:notify(T(_("Saved: %1"), filename), "info")
+            self:_finishDownload(book, series_title, series, local_path, tmp_path, false)
             if on_success then UIManager:nextTick(function() on_success(local_path) end) end
-            UIManager:nextTick(function()
-                pcall(function()
-                    local BookInfoManager = require("plugins/coverbrowser.koplugin/bookinfomanager")
-                    if BookInfoManager and BookInfoManager.deleteBookInfo then BookInfoManager:deleteBookInfo(local_path) end
-                end)
-                local okfm, FileManager = pcall(require, "apps/filemanager/filemanager")
-                if okfm and FileManager.instance then FileManager.instance:onRefresh() end
-            end)
         else
             os.remove(tmp_path)
             logger.warn("kouchiyomi: download failed", tostring(err))
@@ -763,6 +743,260 @@ function Sync:downloadBook(book, series_title, on_success, on_failure, series)
             if on_failure then UIManager:nextTick(function() on_failure(tostring(err)) end) end
         end
     end)
+end
+
+--- Everything that happens once the archive is on disk: bind it to the
+-- book, seed progress and bookmarks, fetch the cover, apply the storage
+-- cap. Shared by foreground and background downloads.
+function Sync:_finishDownload(book, series_title, series, local_path, tmp_path, quiet)
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local final_dir = local_path:match("(.*)/[^/]+")
+    if not series and self.plugin.api and book.seriesId then
+        local s = self.plugin.api:get_series(book.seriesId)
+        if type(s) == "table" then series = s end
+    end
+    self.plugin.settings.matched_books_cache[local_path] = book.id
+    self.plugin.settings.downloaded_books = self.plugin.settings.downloaded_books or {}
+    self.plugin.settings.downloaded_books[local_path] = os.time()
+    self.plugin:saveSettings()
+    pcall(Sidecar.saveBookMetadata, local_path, book, series_title, series)
+    os.rename(tmp_path, local_path)
+    -- Seed the sidecar with the server's progress and bookmarks so the
+    -- chapter opens where you left it on another device.
+    pcall(function()
+        local rp = book.readProgress
+        local total = book.media and book.media.pagesCount
+        if type(rp) == "table" and ((rp.page or 0) > 0 or rp.completed) then
+            Sidecar.writeLocalProgress(local_path, rp.page, total, rp.completed)
+        end
+        if self.plugin.bookmarks and self.plugin.settings.sync_bookmarks then
+            local all = self.plugin.bookmarks:fetchServerBookmarks()
+            if all then self.plugin.bookmarks:syncClosedDocument(local_path, book.id, all[book.id] or {}) end
+        end
+    end)
+    self:downloadSeriesCoverIfMissing(book, final_dir, series_title)
+    pcall(function() self.plugin.cache:cacheThumbnail("book", book.id, book.artVersion) end)
+    self:enforceDownloadCap(local_path)
+    local label = Labels.display(book, true, series_title)
+    self.plugin:notify(quiet and T(_("%1 is ready on this device"), label) or T(_("Saved: %1"), label), "info")
+    UIManager:nextTick(function()
+        pcall(function()
+            local BookInfoManager = require("plugins/coverbrowser.koplugin/bookinfomanager")
+            if BookInfoManager and BookInfoManager.deleteBookInfo then BookInfoManager:deleteBookInfo(local_path) end
+        end)
+        local okfm, FileManager = pcall(require, "apps/filemanager/filemanager")
+        if okfm and FileManager.instance then FileManager.instance:onRefresh() end
+    end)
+end
+
+-- ---------------------------------------------------------------------------
+-- Background downloads (read-ahead)
+-- ---------------------------------------------------------------------------
+
+function Sync:isDownloading(book_id)
+    return book_id ~= nil and Sync.jobs[tostring(book_id)] ~= nil
+end
+
+function Sync:backgroundJobCount()
+    local n = 0
+    for _ in pairs(Sync.jobs) do n = n + 1 end
+    return n
+end
+
+--- Fetch a chapter in a forked subprocess so the reader stays responsive.
+-- The parent polls for completion and then finalises the file exactly like
+-- a foreground download. Returns true when a job is running for the book.
+function Sync:startBackgroundDownload(book, series_title, series)
+    if not self.plugin.api or type(book) ~= "table" or not book.id then return false end
+    local key = tostring(book.id)
+    if Sync.jobs[key] then return true end
+    series_title = series_title or book.seriesTitle or (series and ((series.metadata and series.metadata.title) or series.name))
+    local local_path = self:getBookLocalPath(book, series_title)
+    if not local_path then return false end
+    local lfs = require("libs/libkoreader-lfs")
+    if lfs.attributes(local_path, "mode") == "file" then return false end
+    require("util").makePath(local_path:match("(.*)/[^/]+") .. "/")
+    local tmp_path, err_path = local_path .. ".part", local_path .. ".err"
+    os.remove(tmp_path)
+    os.remove(err_path)
+    local api = self.plugin.api
+    local pid = FFIUtil.runInSubProcess(function()
+        local ok, err = api:download_book(book.id, tmp_path)
+        if not ok then
+            os.remove(tmp_path)
+            local f = io.open(err_path, "w")
+            if f then f:write(tostring(err)); f:close() end
+        end
+    end)
+    if not pid then
+        logger.warn("kouchiyomi: could not start a background download (fork failed)")
+        return false
+    end
+    UIManager:preventStandby()
+    Sync.jobs[key] = {
+        pid = pid, book = book, series_title = series_title, series = series,
+        local_path = local_path, tmp_path = tmp_path, err_path = err_path, started = os.time(),
+    }
+    logger.info("kouchiyomi: background download started:", key, local_path)
+    if not Sync.poller then
+        Sync.poller = true
+        UIManager:scheduleIn(3, Sync._pollJobs)
+    end
+    return true
+end
+
+function Sync._pollJobs()
+    Sync.poller = nil
+    local lfs = require("libs/libkoreader-lfs")
+    local live = Sync.live
+    for key, job in pairs(Sync.jobs) do
+        if not job.killed and os.time() - job.started > 15 * 60 then
+            job.killed = true
+            pcall(FFIUtil.terminateSubProcess, job.pid)
+        end
+        if FFIUtil.isSubProcessDone(job.pid) then
+            Sync.jobs[key] = nil
+            UIManager:allowStandby()
+            local attr = lfs.attributes(job.tmp_path)
+            local errf = io.open(job.err_path, "r")
+            local err = errf and errf:read("*a") or nil
+            if errf then errf:close() end
+            os.remove(job.err_path)
+            local live_sync = live and (live.sync or Sync:new(live))
+            if attr and attr.size > 0 and not err and not job.killed and live_sync then
+                local ok, e = pcall(live_sync._finishDownload, live_sync, job.book, job.series_title, job.series, job.local_path, job.tmp_path, true)
+                if not ok then
+                    logger.warn("kouchiyomi: finishing background download failed:", tostring(e))
+                    os.remove(job.tmp_path)
+                end
+            else
+                os.remove(job.tmp_path)
+                logger.warn("kouchiyomi: background download failed:", key, tostring(err or (job.killed and "timed out") or "no file"))
+            end
+        end
+    end
+    if next(Sync.jobs) then
+        Sync.poller = true
+        UIManager:scheduleIn(3, Sync._pollJobs)
+    end
+end
+
+--- Remember the next chapter and fetch the next `depth` chapters that are
+-- not on the device yet, in the background.
+function Sync:readAhead(book_id, depth)
+    depth = tonumber(depth) or 0
+    if not self.plugin.api or not book_id then return end
+    local cur = book_id
+    for i = 1, math.max(1, depth) do
+        local nb = self.plugin.api:get_next_book(cur)
+        if type(nb) ~= "table" or not nb.id then break end
+        if i == 1 then self:cacheNextChapter(book_id, nb) end
+        if depth >= i and not self:isBookDownloaded(nb) and not self:isDownloading(nb.id) then
+            self:startBackgroundDownload(nb, nb.seriesTitle, nil)
+        end
+        cur = nb.id
+    end
+end
+
+--- Wait for a background download of `book` to land, then open it.
+function Sync:openWhenReady(book, local_path, open_fn)
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local lfs = require("libs/libkoreader-lfs")
+    local InfoMessage = require("ui/widget/infomessage")
+    local msg = InfoMessage:new{ text = T(_("Waiting for %1 to finish downloading..."), Labels.chapter(book)) }
+    UIManager:show(msg)
+    local tries = 0
+    local function poll()
+        tries = tries + 1
+        if lfs.attributes(local_path, "mode") == "file" then
+            UIManager:close(msg)
+            open_fn(local_path)
+            return
+        end
+        if not self:isDownloading(book.id) or tries > 400 then
+            UIManager:close(msg)
+            self.plugin:notify(T(_("%1 did not finish downloading."), Labels.chapter(book)), "error")
+            return
+        end
+        UIManager:scheduleIn(2, poll)
+    end
+    UIManager:scheduleIn(1, poll)
+end
+
+-- ---------------------------------------------------------------------------
+-- Cleanup of finished chapters
+-- ---------------------------------------------------------------------------
+
+--- Remove a downloaded chapter and everything the plugin knows about it.
+function Sync:deleteDownloadedFile(path)
+    os.remove(path)
+    self:purgeSidecar(path)
+    self.plugin.settings.matched_books_cache[path] = nil
+    if self.plugin.settings.downloaded_books then self.plugin.settings.downloaded_books[path] = nil end
+    UIManager:nextTick(function()
+        pcall(function()
+            local BookInfoManager = require("plugins/coverbrowser.koplugin/bookinfomanager")
+            if BookInfoManager and BookInfoManager.deleteBookInfo then BookInfoManager:deleteBookInfo(path) end
+        end)
+        local okfm, FileManager = pcall(require, "apps/filemanager/filemanager")
+        if okfm and FileManager.instance then FileManager.instance:onRefresh() end
+    end)
+end
+
+--- Called when the reader moves on from a finished chapter: the file may go
+-- once Uchiyomi confirms the chapter is read (processCleanup).
+function Sync:scheduleCleanup(path, book_id)
+    if not path or not book_id then return end
+    if self.plugin.settings.delete_read_on_advance == false then return end
+    local pend = self.plugin.settings.pending_cleanup or {}
+    pend[path] = tostring(book_id)
+    self.plugin.settings.pending_cleanup = pend
+    self.plugin:saveSettings()
+end
+
+--- Delete scheduled files whose chapter Uchiyomi has as read. Needs the
+-- server; anything it cannot confirm now is tried again later.
+function Sync:processCleanup()
+    local pend = self.plugin.settings.pending_cleanup
+    if not pend or not next(pend) or not self.plugin.api then return end
+    if self.plugin.settings.delete_read_on_advance == false then
+        self.plugin.settings.pending_cleanup = {}
+        self.plugin:saveSettings()
+        return
+    end
+    local NetworkMgr = require("ui/network/manager")
+    if not NetworkMgr:isOnline() then return end
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local lfs = require("libs/libkoreader-lfs")
+    local open_path = self.plugin.ui and self.plugin.ui.document and self.plugin.ui.document.file
+    local removed, changed = {}, false
+    for path, book_id in pairs(pend) do
+        if path == open_path then
+            -- came back to it: leave it alone, decide again next time
+        elseif lfs.attributes(path, "mode") ~= "file" then
+            pend[path] = nil; changed = true
+        else
+            local book, _err, code = self.plugin.api:get_book(book_id)
+            if type(book) == "table" then
+                local rp = book.readProgress
+                if type(rp) == "table" and rp.completed then
+                    self:deleteDownloadedFile(path)
+                    table.insert(removed, Labels.display(book, true))
+                end
+                -- either way it is settled: read -> gone, not read -> kept
+                pend[path] = nil; changed = true
+            elseif code == 404 then
+                pend[path] = nil; changed = true
+            end
+        end
+    end
+    if changed then self.plugin:saveSettings() end
+    if #removed > 0 then
+        self.plugin:notify(T(_("Removed read chapter(s): %1"), table.concat(removed, ", ")), "info")
+    end
 end
 
 function Sync:downloadBooksSeq(books, index, on_done)
@@ -830,8 +1064,8 @@ end
 --- Called from the end-of-book hook when the reader turns past the last
 -- page of a linked chapter. Marks the chapter finished in KOReader, records
 -- it as read on Uchiyomi (buffered when that is not possible right now) and
--- offers the next chapter of the series. Returns true when we showed our own
--- dialog, false to let KOReader's end-of-document action run.
+-- shows the chapter-end dialog for the next chapter of the series. Returns
+-- true when the dialog was shown, else false plus the reason.
 function Sync:promptNextChapter(ui, show_native)
     if not ui or not ui.document then return false, "no document" end
     local filepath = ui.document.file
@@ -839,7 +1073,6 @@ function Sync:promptNextChapter(ui, show_native)
     if not book_id then return false, "not linked" end
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
-    local ButtonDialog = require("ui/widget/buttondialog")
     local NetworkMgr = require("ui/network/manager")
     local lfs = require("libs/libkoreader-lfs")
 
@@ -857,11 +1090,57 @@ function Sync:promptNextChapter(ui, show_native)
     end
     if not pushed then self:bufferOfflineProgress(book_id, total, total, true) end
 
-    local function open_path(path)
+    local info = self:getOfflineBookInfo(filepath)
+    local current = {
+        id = book_id, seriesId = info.series_id, seriesTitle = info.series, name = info.title,
+        metadata = { title = info.title, number = info.series_index and tostring(info.series_index) or nil },
+    }
+
+    local dialog
+    local function close() if dialog then UIManager:close(dialog) end end
+    -- Moving on: the finished file may go once Uchiyomi has it as read.
+    local function leave_for(path)
+        self:scheduleCleanup(filepath, book_id)
         UIManager:nextTick(function()
-            local filemanagerutil = require("apps/filemanager/filemanagerutil")
-            filemanagerutil.openFile(ui, path)
+            require("apps/filemanager/filemanagerutil").openFile(ui, path)
         end)
+    end
+    local default_row = {
+        { text = _("Default action"), callback = function() close(); if show_native then show_native() end end },
+        { text = _("Cancel"), callback = function() close() end },
+    }
+
+    -- 3. Which chapter is next, and where it is.
+    local next_book, state, note, local_path
+    if online then
+        local nb, err, code = self:cacheNextChapterFor(book_id)
+        if nb then
+            next_book = nb
+        elseif code == 404 or code == nil then
+            state = "last"
+        else
+            note = T(_("Uchiyomi did not answer (%1)."), tostring(err))
+        end
+    else
+        note = _("Offline.")
+    end
+    if not next_book and state ~= "last" then
+        -- Only the chapter Uchiyomi itself named as next (cached while
+        -- online) is ever considered: guessing from files on the device
+        -- would skip chapters.
+        local cached = self.plugin.settings.next_chapter_cache and self.plugin.settings.next_chapter_cache[tostring(book_id)]
+        if cached then next_book = cached else state = "unknown" end
+    end
+    if next_book then
+        local_path = self:getBookLocalPath(next_book, next_book.seriesTitle)
+        if local_path and lfs.attributes(local_path, "mode") == "file" then
+            state = "ready"
+        elseif self:isDownloading(next_book.id) then
+            state = "downloading"
+        else
+            state = "missing"
+        end
+        if online then pcall(function() self.plugin.cache:cacheThumbnail("book", next_book.id, next_book.artVersion) end) end
     end
 
     -- Runs once the server is reachable again: record the finished chapter,
@@ -887,95 +1166,45 @@ function Sync:promptNextChapter(ui, show_native)
         end
         local p = self:getBookLocalPath(nb, nb.seriesTitle)
         if p and lfs.attributes(p, "mode") == "file" then
-            open_path(p)
+            leave_for(p)
+        elseif self:isDownloading(nb.id) then
+            self:openWhenReady(nb, p, leave_for)
         else
-            self:downloadBook(nb, nb.seriesTitle, open_path)
+            self:downloadBook(nb, nb.seriesTitle, leave_for)
         end
     end
 
-    -- 3. Next chapter without the server. Only the chapter Uchiyomi itself
-    --    named as next (cached while online) is ever opened: a later file
-    --    that happens to be on the device would skip chapters. Anything else
-    --    is reported, with an offer to reconnect and fetch the right one.
-    local function offline_dialog(reason)
-        local cached = self.plugin.settings.next_chapter_cache and self.plugin.settings.next_chapter_cache[tostring(book_id)]
-        local path, title
-        if cached then
-            title = book_title(cached)
-            local p = self:getBookLocalPath(cached, cached.seriesTitle)
-            if p and lfs.attributes(p, "mode") == "file" then path = p end
-        end
-        local text
-        if path then
-            text = T(_("%1 Next chapter is on this device: %2"), reason, title)
-        elseif cached then
-            text = T(_("%1 The next chapter (%2) is not on this device."), reason, title)
-        else
-            text = T(_("%1 Which chapter comes next is not known without the server."), reason)
-        end
-        local dialog
-        local buttons = {}
-        if path then
-            table.insert(buttons, { { text = _("Open next chapter"), is_enter_default = true,
-                callback = function() UIManager:close(dialog); open_path(path) end } })
-        else
-            table.insert(buttons, { { text = online and _("Try again") or _("Turn on Wi-Fi and fetch it"), is_enter_default = true,
-                callback = function() UIManager:close(dialog); NetworkMgr:runWhenOnline(fetch_and_open_next) end } })
-        end
-        table.insert(buttons, {
-            { text = _("Default action"), callback = function() UIManager:close(dialog); if show_native then show_native() end end },
-            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
-        })
-        dialog = ButtonDialog:new{ title = text, buttons = buttons }
-        UIManager:show(dialog)
-    end
-
-    if not online then
-        offline_dialog(_("Offline."))
-        return true
-    end
-
-    local next_book, err, code = self.plugin.api:get_next_book(book_id)
-    if not next_book then
-        if code == 404 or code == nil then
-            self.plugin:notify(_("Chapter marked read. This was the last chapter on the server."), "info")
-            return false, "last chapter on the server"
-        end
-        -- Server unreachable or unhappy: behave as if offline rather than
-        -- silently dropping the reader into KOReader's own dialog.
-        offline_dialog(T(_("Uchiyomi did not answer (%1)."), tostring(err)))
-        return true
-    end
-    self:cacheNextChapter(book_id, next_book)
-    local local_path = self:getBookLocalPath(next_book, next_book.seriesTitle)
-    local downloaded = local_path and lfs.attributes(local_path, "mode") == "file"
-    local title = book_title(next_book)
     local mode = self.plugin.settings.open_mode or "download"
-    local dialog
     local buttons = {}
-    if downloaded then
+    if state == "ready" then
         table.insert(buttons, { { text = _("Open next chapter"), is_enter_default = true,
-            callback = function() UIManager:close(dialog); open_path(local_path) end } })
-    else
+            callback = function() close(); leave_for(local_path) end } })
+    elseif state == "downloading" then
+        table.insert(buttons, { { text = _("Open when ready"), is_enter_default = true,
+            callback = function() close(); self:openWhenReady(next_book, local_path, leave_for) end } })
+        if online and (mode ~= "download" or self.plugin.settings.offer_stream) then
+            table.insert(buttons, { { text = _("Stream it instead"),
+                callback = function() close(); self.plugin.stream:open(next_book) end } })
+        end
+    elseif state == "missing" and online then
         if mode ~= "stream" then
             table.insert(buttons, { { text = _("Download & open"), is_enter_default = mode == "download",
-                callback = function() UIManager:close(dialog); self:downloadBook(next_book, next_book.seriesTitle, open_path) end } })
+                callback = function() close(); self:downloadBook(next_book, next_book.seriesTitle, leave_for) end } })
         end
         if mode ~= "download" or self.plugin.settings.offer_stream then
             table.insert(buttons, { { text = _("Stream next chapter"), is_enter_default = mode == "stream",
-                callback = function() UIManager:close(dialog); self.plugin.stream:open(next_book) end } })
+                callback = function() close(); self.plugin.stream:open(next_book) end } })
         end
+    elseif state == "missing" or state == "unknown" then
+        table.insert(buttons, { { text = online and _("Try again") or _("Turn on Wi-Fi and fetch it"), is_enter_default = true,
+            callback = function() close(); NetworkMgr:runWhenOnline(fetch_and_open_next) end } })
     end
-    table.insert(buttons, {
-        { text = _("Default action"), callback = function() UIManager:close(dialog); if show_native then show_native() end end },
-        { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
-    })
-    dialog = ButtonDialog:new{
-        title = downloaded and T(_("Chapter marked read.\nNext chapter is ready: %1"), title)
-            or T(_("Chapter marked read.\nNext chapter: %1"), title),
-        buttons = buttons,
+    table.insert(buttons, default_row)
+
+    dialog = ChapterEnd.show{
+        plugin = self.plugin, current = current, series_title = info.series,
+        next_book = next_book, state = state, note = note, buttons = buttons,
     }
-    UIManager:show(dialog)
     return true
 end
 

@@ -164,6 +164,7 @@ end
 
 function Menu:readingMenu()
     local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
     local p = self.plugin
     local function mode_item(value, label)
         return {
@@ -190,7 +191,29 @@ function Menu:readingMenu()
             text = _("Follow the series' reading direction (RTL for manga)"),
             checked_func = function() return p.settings.auto_reading_direction ~= false end,
             keep_menu_open = true,
+            separator = true,
             callback = function() p.settings.auto_reading_direction = not (p.settings.auto_reading_direction ~= false); p:saveSettings() end,
+        },
+        {
+            text_func = function()
+                local n = tonumber(p.settings.read_ahead) or 1
+                if n <= 0 then return _("Read ahead: off") end
+                return T(_("Read ahead: fetch the next %1 chapter(s) in the background"), n)
+            end,
+            help_text = _("After a chapter opens, the following chapters are downloaded quietly so the end-of-chapter prompt can open them at once. Counts against the storage cap."),
+            keep_menu_open = true,
+            callback = function(tm)
+                p.settings.read_ahead = ((tonumber(p.settings.read_ahead) or 1) + 1) % 4
+                p:saveSettings()
+                if tm then tm:updateItems() end
+            end,
+        },
+        {
+            text = _("Delete a finished chapter once Uchiyomi has it marked read"),
+            help_text = _("When you move on to the next chapter, the finished file is removed after the server confirms it is read. Progress and bookmarks stay on Uchiyomi."),
+            checked_func = function() return p.settings.delete_read_on_advance ~= false end,
+            keep_menu_open = true,
+            callback = function() p.settings.delete_read_on_advance = not (p.settings.delete_read_on_advance ~= false); p:saveSettings() end,
         },
     }
 end
@@ -241,6 +264,12 @@ function Menu:syncMenu()
             checked_func = function() return p.settings.reconcile_on_connect ~= false end,
             keep_menu_open = true,
             callback = function() p.settings.reconcile_on_connect = not (p.settings.reconcile_on_connect ~= false); p:saveSettings() end,
+        },
+        {
+            text = _("Show pending sync / download count in the reader footer"),
+            checked_func = function() return p.settings.footer_sync_indicator ~= false end,
+            keep_menu_open = true,
+            callback = function() p.settings.footer_sync_indicator = not (p.settings.footer_sync_indicator ~= false); p:saveSettings() end,
         },
     }
 end
@@ -366,7 +395,15 @@ end
 
 function Menu:openBrowser(offline)
     local Browser = require("uchi/browser")
+    local msg
+    if not offline then
+        local InfoMessage = require("ui/widget/infomessage")
+        msg = InfoMessage:new{ text = self.plugin.i18n._("Loading Uchiyomi...") }
+        UIManager:show(msg)
+        UIManager:forceRePaint()
+    end
     local browser = Browser:new{ plugin = self.plugin }
+    if msg then UIManager:close(msg) end
     UIManager:show(browser)
     if offline then browser:showOfflineLibrary() end
 end

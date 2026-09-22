@@ -17,6 +17,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Screen = Device.screen
 local logger = require("logger")
+local Labels = require("uchi/labels")
 
 local LIST_LAYOUT = {
     padding_v = Screen:scaleBySize(2),
@@ -43,9 +44,11 @@ function UchiListItem:init()
         },
     }
 
-    local title_face = Font:getFace("smallinfofont", 20)
+    local is_header = self.entry.is_header == true
+    local title_face = Font:getFace("smallinfofont", is_header and 15 or 20)
     local _ = self.menu and self.menu.plugin and self.menu.plugin.i18n and self.menu.plugin.i18n._ or function(s) return s end
     local title_text = self.entry.text or self.entry.title or _("Unknown")
+    if is_header then title_text = "\u{25B8} " .. title_text:upper() end
     if self.entry.cover_type == "book" and not self.entry.cover_id then
         local book_id = self.entry.book and self.entry.book.id
         if book_id and self.menu and self.menu.selected_books and self.menu.selected_books[book_id] then
@@ -187,21 +190,15 @@ function UchiListItem:init()
         face = title_face,
         width = text_width,
         alignment = "left",
-        bold = true,
+        bold = not is_header,
     }
 
     local subtitle_text = nil
     if self.entry.cover_type == "book" or self.entry.book ~= nil then
         local book = self.entry.book
         if type(book) == "table" then
-            local vol_num
-            if type(book.metadata) == "table" then
-                if book.metadata.number ~= nil then
-                    vol_num = tostring(book.metadata.number)
-                elseif book.metadata.numberSort ~= nil then
-                    vol_num = tostring(book.metadata.numberSort)
-                end
-            end
+            -- What the chapter's title adds beyond its number, if anything.
+            local extra = Labels.subtitle(book, book.seriesTitle)
             
             local author_str
             if type(book.metadata) == "table" and type(book.metadata.authors) == "table" and #book.metadata.authors > 0 then
@@ -213,9 +210,7 @@ function UchiListItem:init()
             end
             
             local parts = {}
-            if vol_num and vol_num ~= "" then
-                table.insert(parts, _("Vol.") .. " " .. vol_num)
-            end
+            if extra then table.insert(parts, extra) end
             if author_str and author_str ~= "" then
                 table.insert(parts, _("By:") .. " " .. author_str)
             end
@@ -300,6 +295,7 @@ function UchiListItem:init()
 end
 
 function UchiListItem:onTapSelect(arg, ges)
+    if self.entry.is_header then return true end
     if self.menu and self.menu.onMenuSelect then
         self.menu:onMenuSelect(self.entry)
         return true

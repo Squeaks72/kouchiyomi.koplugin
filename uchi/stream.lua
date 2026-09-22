@@ -18,6 +18,8 @@ local logger = require("logger")
 local UIManager = require("ui/uimanager")
 local ImageViewer = require("ui/widget/imageviewer")
 local RenderImage = require("ui/renderimage")
+local Labels = require("uchi/labels")
+local ChapterEnd = require("uchi/chapter_end")
 
 local Stream = {}
 
@@ -145,69 +147,75 @@ function Stream:onViewerClose(viewer)
     end
 end
 
---- Offer the chapter after `book`. `viewer` is the open StreamViewer, if
--- any; it is closed before another chapter opens.
+--- The chapter-end dialog for a streamed chapter. `viewer` is the open
+-- StreamViewer, if any; it is closed before another chapter opens.
 function Stream:promptNext(book, viewer)
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
     if not self.plugin.api then return end
-    local nxt, err, code = self.plugin.api:get_next_book(book.id)
-    if not nxt then
-        if code == 404 or code == nil then
-            self.plugin:notify(_("Chapter marked read. This was the last chapter on the server."), "info")
-        else
-            self.plugin:notify(T(_("Chapter marked read. Could not fetch the next chapter: %1"), tostring(err)), "error")
-        end
-        if viewer then viewer._end_prompted = false end
-        return
-    end
-    self.plugin.sync:cacheNextChapter(book.id, nxt)
-    local title = (nxt.metadata and nxt.metadata.title) or nxt.name or ""
-    local local_path = self.plugin.sync:getBookLocalPath(nxt, nxt.seriesTitle)
+    local sync = self.plugin.sync
     local lfs = require("libs/libkoreader-lfs")
-    local downloaded = local_path and lfs.attributes(local_path, "mode") == "file"
+    local nxt, err, code = sync:cacheNextChapterFor(book.id)
+    local state, note, local_path
+    if nxt then
+        local_path = sync:getBookLocalPath(nxt, nxt.seriesTitle)
+        if local_path and lfs.attributes(local_path, "mode") == "file" then
+            state = "ready"
+        elseif sync:isDownloading(nxt.id) then
+            state = "downloading"
+        else
+            state = "missing"
+        end
+        pcall(function() self.plugin.cache:cacheThumbnail("book", nxt.id, nxt.artVersion) end)
+    elseif code == 404 or code == nil then
+        state = "last"
+    else
+        state = "unknown"
+        note = T(_("Uchiyomi did not answer (%1)."), tostring(err))
+    end
+
+    local dialog
+    local function close() if dialog then UIManager:close(dialog) end end
     local function leave_viewer()
         if viewer and not viewer._closed then viewer:onClose() end
     end
     local function open_file(path)
         UIManager:nextTick(function()
-            local filemanagerutil = require("apps/filemanager/filemanagerutil")
-            filemanagerutil.openFile(self.plugin.ui, path)
+            require("apps/filemanager/filemanagerutil").openFile(self.plugin.ui, path)
         end)
     end
-    local ButtonDialog = require("ui/widget/buttondialog")
-    local dialog
-    local buttons = {}
-    if downloaded then
-        table.insert(buttons, { { text = _("Open next chapter"), is_enter_default = true, callback = function()
-            UIManager:close(dialog)
-            leave_viewer()
-            open_file(local_path)
-        end } })
-    end
-    table.insert(buttons, { { text = _("Stream next chapter"), is_enter_default = not downloaded, callback = function()
-        UIManager:close(dialog)
+    local function stream_next()
+        close()
         leave_viewer()
         UIManager:nextTick(function() self:open(nxt) end)
-    end } })
-    if not downloaded then
-        table.insert(buttons, { { text = _("Download next chapter"), callback = function()
-            UIManager:close(dialog)
-            leave_viewer()
-            self.plugin.sync:downloadBook(nxt, nxt.seriesTitle, open_file)
-        end } })
+    end
+
+    local buttons = {}
+    if state == "ready" then
+        table.insert(buttons, { { text = _("Open next chapter"), is_enter_default = true,
+            callback = function() close(); leave_viewer(); open_file(local_path) end } })
+        table.insert(buttons, { { text = _("Stream next chapter"), callback = stream_next } })
+    elseif state == "downloading" then
+        table.insert(buttons, { { text = _("Stream next chapter"), is_enter_default = true, callback = stream_next } })
+        table.insert(buttons, { { text = _("Open when downloaded"),
+            callback = function() close(); leave_viewer(); sync:openWhenReady(nxt, local_path, open_file) end } })
+    elseif state == "missing" then
+        table.insert(buttons, { { text = _("Stream next chapter"), is_enter_default = true, callback = stream_next } })
+        table.insert(buttons, { { text = _("Download next chapter"),
+            callback = function() close(); leave_viewer(); sync:downloadBook(nxt, nxt.seriesTitle, open_file) end } })
+    elseif state == "unknown" then
+        table.insert(buttons, { { text = _("Try again"), is_enter_default = true,
+            callback = function() close(); self:promptNext(book, viewer) end } })
     end
     table.insert(buttons, { { text = _("Close"), callback = function()
-        UIManager:close(dialog)
+        close()
         -- Stay on the last page; asking again later is fine.
         if viewer then viewer._end_prompted = false end
     end } })
-    dialog = ButtonDialog:new{
-        title = downloaded and T(_("Chapter marked read.\nNext chapter is ready: %1"), title)
-            or T(_("Chapter marked read.\nNext chapter: %1"), title),
-        buttons = buttons,
+
+    dialog = ChapterEnd.show{
+        plugin = self.plugin, current = book, next_book = nxt, state = state, note = note, buttons = buttons,
     }
-    UIManager:show(dialog)
 end
 
 --- Open a chapter for streaming. start_page overrides the server position.
@@ -224,7 +232,7 @@ function Stream:open(book, start_page)
         return
     end
     local InfoMessage = require("ui/widget/infomessage")
-    local msg = InfoMessage:new{ text = T(_("Opening %1..."), (book.metadata and book.metadata.title) or book.name or "") }
+    local msg = InfoMessage:new{ text = T(_("Opening %1..."), Labels.display(book, true)) }
     UIManager:show(msg)
     UIManager:forceRePaint()
 
