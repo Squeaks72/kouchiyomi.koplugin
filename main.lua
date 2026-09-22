@@ -43,6 +43,7 @@ local DEFAULT_SETTINGS = {
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
     auto_reading_direction = true,
+    auto_advance = true,             -- end of chapter: open the next one without asking when it is at hand
     read_ahead = 1,                  -- chapters to download in the background after opening one
     delete_read_on_advance = true,   -- drop a finished chapter's file once Uchiyomi has it as read
     footer_sync_indicator = true,
@@ -190,7 +191,7 @@ function Plugin:diagnosticsText()
     local pc = 0
     for _ in pairs(self.settings.pending_cleanup or {}) do pc = pc + 1 end
     table.insert(lines, "Finished chapters awaiting cleanup: " .. pc)
-    table.insert(lines, "Read ahead: " .. tostring(self.settings.read_ahead) .. "  Delete when read: " .. tostring(self.settings.delete_read_on_advance ~= false))
+    table.insert(lines, "Read ahead: " .. tostring(self.settings.read_ahead) .. "  Delete when read: " .. tostring(self.settings.delete_read_on_advance ~= false) .. "  Auto-advance: " .. tostring(self.settings.auto_advance ~= false))
     local text = table.concat(lines, "\n")
     logger.info("kouchiyomi diagnostics:\n" .. text)
     return text

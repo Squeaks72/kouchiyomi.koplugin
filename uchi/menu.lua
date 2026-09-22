@@ -195,6 +195,13 @@ function Menu:readingMenu()
             callback = function() p.settings.auto_reading_direction = not (p.settings.auto_reading_direction ~= false); p:saveSettings() end,
         },
         {
+            text = _("Open the next chapter without asking"),
+            help_text = _("At the end of a chapter, the next one opens straight away when it is on the device, is downloaded first when it is only on the server, or is streamed when streaming is your open mode. The dialog still appears when offline without the chapter, on the last chapter, or when the server fails."),
+            checked_func = function() return p.settings.auto_advance ~= false end,
+            keep_menu_open = true,
+            callback = function() p.settings.auto_advance = not (p.settings.auto_advance ~= false); p:saveSettings() end,
+        },
+        {
             text_func = function()
                 local n = tonumber(p.settings.read_ahead) or 1
                 if n <= 0 then return _("Read ahead: off") end

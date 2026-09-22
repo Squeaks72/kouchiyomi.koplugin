@@ -190,6 +190,22 @@ function Stream:promptNext(book, viewer)
         UIManager:nextTick(function() self:open(nxt) end)
     end
 
+    -- Auto-advance: keep going without asking when the next chapter is at hand.
+    if self.plugin.settings.auto_advance ~= false and nxt then
+        if state == "ready" then
+            leave_viewer()
+            open_file(local_path)
+            return
+        elseif state == "downloading" then
+            leave_viewer()
+            sync:openWhenReady(nxt, local_path, open_file)
+            return
+        elseif state == "missing" then
+            stream_next()
+            return
+        end
+    end
+
     local buttons = {}
     if state == "ready" then
         table.insert(buttons, { { text = _("Open next chapter"), is_enter_default = true,

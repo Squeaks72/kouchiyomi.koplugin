@@ -34,6 +34,10 @@ Davis), reworked for Uchiyomi's native API.
   open / download / stream actions. Offline, only the chapter Uchiyomi
   named as next is opened (never a later file that would skip chapters);
   if it is missing, the plugin offers to turn Wi-Fi on and fetch it.
+- **Auto-advance**: with the setting on (default), the next chapter opens
+  without a dialog when it is on the device, and is downloaded first when it
+  is only on the server. The dialog is kept for offline-and-missing, last
+  chapter and server errors.
 - **Read ahead & cleanup**: the next chapter(s) download quietly in the
   background after one opens; a finished chapter's file is removed once
   Uchiyomi confirms it is read. Both are settings under Reading.

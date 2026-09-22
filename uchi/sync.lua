@@ -1185,6 +1185,27 @@ function Sync:promptNextChapter(ui, show_native)
     end
 
     local mode = self.plugin.settings.open_mode or "download"
+
+    -- 4. Auto-advance: no dialog when the way forward is clear. The dialog
+    --    is kept for the cases that need a decision (offline and missing,
+    --    unknown, last chapter, server error).
+    if self.plugin.settings.auto_advance ~= false and next_book then
+        if state == "ready" then
+            leave_for(local_path)
+            return true
+        elseif state == "downloading" then
+            self:openWhenReady(next_book, local_path, leave_for)
+            return true
+        elseif state == "missing" and online then
+            if mode == "stream" then
+                self.plugin.stream:open(next_book)
+            else
+                self:downloadBook(next_book, next_book.seriesTitle, leave_for)
+            end
+            return true
+        end
+    end
+
     local buttons = {}
     if state == "ready" then
         table.insert(buttons, { { text = _("Open next chapter"), is_enter_default = true,

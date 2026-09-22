@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.2 — 2026-09-22
+- Auto-advance (Reading setting, on by default): turning past the last page opens the next chapter with no dialog when it is on the device, downloads it first when it is only on the server (or streams it when streaming is your open mode), or waits for a running read-ahead. The chapter-end dialog still appears when offline without the chapter, on the last chapter, or when the server fails.
+
 ## 0.4.1 — 2026-09-22
 - Read-ahead is fully silent: no notice when a background download finishes, when the storage cap evicts an old chapter during one, or when a finished chapter is cleaned up. All of it still goes to the log and Diagnostics.
 
