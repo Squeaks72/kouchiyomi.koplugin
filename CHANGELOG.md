@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.1 — 2026-09-22
+- Read-ahead is fully silent: no notice when a background download finishes, when the storage cap evicts an old chapter during one, or when a finished chapter is cleaned up. All of it still goes to the log and Diagnostics.
+
 ## 0.4.0 — 2026-09-22
 - Read ahead: after a chapter opens, the next N chapters (setting, default 1) are downloaded in a forked background process, so the reader never waits and the end-of-chapter prompt usually says "ready". Counts against the storage cap.
 - Cleanup: when you move on from a finished chapter, its file is deleted once Uchiyomi confirms it is read (setting, default on). Progress and bookmarks live on the server.

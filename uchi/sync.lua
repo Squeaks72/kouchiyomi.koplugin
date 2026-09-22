@@ -652,7 +652,7 @@ function Sync:purgeSidecar(filepath)
     end)
 end
 
-function Sync:enforceDownloadCap(protect_path)
+function Sync:enforceDownloadCap(protect_path, quiet)
     local max_gb = tonumber(self.plugin.settings.max_download_gb)
     if not max_gb or max_gb <= 0 then return end
     local max_bytes = math.floor(max_gb * 1024 * 1024 * 1024)
@@ -686,9 +686,13 @@ function Sync:enforceDownloadCap(protect_path)
             end
         end
         if evicted > 0 then
-            local _ = self.plugin.i18n._
-            local T = self.plugin.i18n.T
-            self.plugin:notify(T(_("Storage cap: removed %1 old chapter(s)"), evicted), "info")
+            if quiet then
+                logger.info("kouchiyomi: storage cap removed", evicted, "old chapter(s)")
+            else
+                local _ = self.plugin.i18n._
+                local T = self.plugin.i18n.T
+                self.plugin:notify(T(_("Storage cap: removed %1 old chapter(s)"), evicted), "info")
+            end
         end
     end
     if changed then self.plugin:saveSettings() end
@@ -777,9 +781,14 @@ function Sync:_finishDownload(book, series_title, series, local_path, tmp_path, 
     end)
     self:downloadSeriesCoverIfMissing(book, final_dir, series_title)
     pcall(function() self.plugin.cache:cacheThumbnail("book", book.id, book.artVersion) end)
-    self:enforceDownloadCap(local_path)
+    self:enforceDownloadCap(local_path, quiet)
     local label = Labels.display(book, true, series_title)
-    self.plugin:notify(quiet and T(_("%1 is ready on this device"), label) or T(_("Saved: %1"), label), "info")
+    if quiet then
+        -- Read-ahead is invisible by design: nothing on screen while reading.
+        logger.info("kouchiyomi: read-ahead finished:", label, local_path)
+    else
+        self.plugin:notify(T(_("Saved: %1"), label), "info")
+    end
     UIManager:nextTick(function()
         pcall(function()
             local BookInfoManager = require("plugins/coverbrowser.koplugin/bookinfomanager")
@@ -995,7 +1004,8 @@ function Sync:processCleanup()
     end
     if changed then self.plugin:saveSettings() end
     if #removed > 0 then
-        self.plugin:notify(T(_("Removed read chapter(s): %1"), table.concat(removed, ", ")), "info")
+        -- Silent on purpose: this runs as a chapter opens. Diagnostics and the log record it.
+        logger.info("kouchiyomi: removed read chapter(s):", table.concat(removed, ", "))
     end
 end
 
