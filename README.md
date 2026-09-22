@@ -9,8 +9,9 @@ Davis), reworked for Uchiyomi's native API.
 
 ## Features
 
-- **Browse**: continue reading, new chapters in your favourites, favourites,
-  server bookmarks, recently updated, all series, per-library, search, and an
+- **Browse**: keep reading (Uchiyomi's own rail: where you left off in each
+  series), next unread chapter of every favourite, favourites, server
+  bookmarks, recently updated, all series, per-library, search, and an
   offline view of everything downloaded.
 - **Read your way**: tap a chapter to download it (default) or stream it from
   the server; the choice is a setting, or ask every time. Hold a chapter for
@@ -27,8 +28,9 @@ Davis), reworked for Uchiyomi's native API.
 - **Server → device**: "Pull Uchiyomi state into downloaded chapters" (also
   runs automatically when Wi-Fi connects) copies progress and bookmarks into
   every downloaded chapter that is not currently open.
-- **Next chapter**: at the end of a chapter, open / download / stream the next
-  one; works offline when the next chapter is already on the device.
+- **Next chapter**: turning past the last page marks the chapter finished
+  (in KOReader and on Uchiyomi) and offers to open / download / stream the
+  next one; works offline when the next chapter is already on the device.
 - **Series actions**: favourite, download next unread N, mark all read.
 - Covers, list/grid views, series subfolders, storage cap, 18+ libraries opt-in.
 

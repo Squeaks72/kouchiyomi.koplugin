@@ -345,7 +345,7 @@ end
 function UchiBrowser:getHomeItemTable()
     local _ = self.plugin.i18n._
     return {
-        { text = _("Continue reading"),       callback = function() self:showContinueReading() end },
+        { text = _("Keep reading"),           callback = function() self:showKeepReading() end },
         { text = _("New chapters (favourites)"), callback = function() self:showUpdates() end },
         { text = _("Favourites"),             callback = function() self:showFavorites() end },
         { text = _("Bookmarks"),              callback = function() self:showBookmarks() end },
@@ -434,62 +434,111 @@ function UchiBrowser:showFavorites()
     }
 end
 
+--- For every favourite series with something left to read: its next unread
+-- chapter, series with newly added chapters first. Tap opens the chapter.
 function UchiBrowser:showUpdates()
     if not self.plugin.api then return end
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
+    local InfoMessage = require("ui/widget/infomessage")
     self:_loadCatalog{
-        title = _("New chapters"),
-        fetch_func = function() return self.plugin.api:get_updates() end,
-        cover_source = function(u) return u.series end,
-        item_builder = function(u)
-            local s = u.series
-            if not s then return nil end
-            local item = series_item(self, s)
-            item.text = T(_("%1  (+%2 new)"), series_title(s), u.newCount or 0)
-            return item
-        end,
-        cover_type = "series",
-        empty_text = _("No new chapters in your favourites"),
-    }
-end
-
-function UchiBrowser:showContinueReading()
-    if not self.plugin.api then return end
-    local _ = self.plugin.i18n._
-    local T = self.plugin.i18n.T
-    self:_loadCatalog{
-        title = _("Continue reading"),
+        title = _("Favourites: next unread"),
         fetch_func = function()
-            local hist = self.plugin.api:get_history(40)
-            if type(hist) ~= "table" then return hist end
+            local favs, err = self.plugin.api:get_favorites()
+            if type(favs) ~= "table" then return favs, err end
+            local list = favs.content or favs
+            local msg = InfoMessage:new{ text = T(_("Checking %1 favourite(s)..."), #list) }
+            UIManager:show(msg)
+            UIManager:forceRePaint()
             local out = {}
-            local seen_series = {}
-            for _i, h in ipairs(hist.content or {}) do
-                if h.series_id and not seen_series[h.series_id] then
-                    seen_series[h.series_id] = true
-                    local book
-                    if h.completed then
-                        book = self.plugin.api:get_next_book(h.book_id)
-                        if book then book.__label = _("Next up") end
-                    else
-                        book = self.plugin.api:get_book(h.book_id)
-                        if book then book.__label = T(_("Page %1"), h.page or "?") end
-                    end
-                    if type(book) == "table" and book.id then table.insert(out, book) end
+            for i, s in ipairs(list) do
+                local book = self.plugin.sync:getNextUnreadBook(s)
+                if book then
+                    book.__series = s
+                    book.seriesTitle = (book.seriesTitle ~= nil and book.seriesTitle ~= "") and book.seriesTitle or series_title(s)
+                    book.__unread = tonumber(s.booksUnreadCount) or (s.yomi and tonumber(s.yomi.unread))
+                    book.__new = (s.yomi and tonumber(s.yomi.newCount)) or 0
+                    book.__order = i
+                    table.insert(out, book)
                 end
-                if #out >= 20 then break end
             end
+            UIManager:close(msg)
+            table.sort(out, function(a, b)
+                if a.__new ~= b.__new then return a.__new > b.__new end
+                return a.__order < b.__order
+            end)
             return { content = out, totalPages = 1 }
         end,
         item_builder = function(b)
             local item = book_item(self, b, true)
-            if b.__label then item.text = item.text .. "  [" .. b.__label .. "]" end
+            local tags = {}
+            if b.__new and b.__new > 0 then table.insert(tags, T(_("+%1 new"), b.__new)) end
+            if b.__unread and b.__unread > 0 then table.insert(tags, T(_("%1 unread"), b.__unread)) end
+            if #tags > 0 then item.text = item.text .. "  [" .. table.concat(tags, ", ") .. "]" end
+            return item
+        end,
+        cover_type = "book",
+        empty_text = _("Every chapter of your favourites is read."),
+    }
+end
+
+--- Uchiyomi's "Keep reading" rail (/api/home onDeck): for each series read
+-- lately, the chapter you are part-way through or the next unread one.
+-- Falls back to the reading history on servers without that endpoint.
+function UchiBrowser:showKeepReading()
+    if not self.plugin.api then return end
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    self:_loadCatalog{
+        title = _("Keep reading"),
+        fetch_func = function()
+            local home, err = self.plugin.api:get_home()
+            if type(home) == "table" and type(home.onDeck) == "table" then
+                return { content = home.onDeck, totalPages = 1 }
+            end
+            if home == nil and err then logger.warn("kouchiyomi: /api/home failed, using history:", tostring(err)) end
+            return self:_keepReadingFromHistory()
+        end,
+        item_builder = function(b)
+            local item = book_item(self, b, true)
+            local rp = b.readProgress
+            local total = b.media and tonumber(b.media.pagesCount) or 0
+            local label
+            if type(rp) == "table" and not rp.completed and (tonumber(rp.page) or 0) > 0 then
+                label = total > 0 and T(_("page %1 of %2"), rp.page, total) or T(_("page %1"), rp.page)
+            else
+                label = _("next up")
+            end
+            item.text = item.text .. "  [" .. label .. "]"
             return item
         end,
         cover_type = "book",
         empty_text = _("Nothing in progress. Open a chapter to start."),
     }
+end
+
+function UchiBrowser:_keepReadingFromHistory()
+    local hist, err = self.plugin.api:get_history(40)
+    if type(hist) ~= "table" then return hist, err end
+    local out = {}
+    local seen_series = {}
+    for _i, h in ipairs(hist.content or {}) do
+        if h.series_id and not seen_series[h.series_id] then
+            seen_series[h.series_id] = true
+            local book
+            if h.completed then
+                book = self.plugin.api:get_next_book(h.book_id)
+            else
+                book = self.plugin.api:get_book(h.book_id)
+                if type(book) == "table" and not book.readProgress then
+                    book.readProgress = { page = h.page, completed = false }
+                end
+            end
+            if type(book) == "table" and book.id then table.insert(out, book) end
+        end
+        if #out >= 20 then break end
+    end
+    return { content = out, totalPages = 1 }
 end
 
 function UchiBrowser:showBookmarks()

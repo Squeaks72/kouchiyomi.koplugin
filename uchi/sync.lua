@@ -510,6 +510,33 @@ function Sync:getNextUnreadBooksInSeries(series_id, count)
     return out
 end
 
+--- The first chapter of a series (in reading order) that is not finished,
+-- or nil when everything is read. The server's read count is used to start
+-- near the right page; chapters read out of order are caught by a full scan.
+function Sync:getNextUnreadBook(series)
+    if not self.plugin.api or not series or not series.id then return nil end
+    local unread = tonumber(series.booksUnreadCount) or (series.yomi and tonumber(series.yomi.unread))
+    if unread == 0 then return nil end
+    local size = 100
+    local start = math.floor((tonumber(series.booksReadCount) or 0) / size)
+    local function scan(from, to)
+        for page = from, to do
+            local res = self.plugin.api:get_series_books(series.id, page, size)
+            if type(res) ~= "table" then return nil, true end
+            local content = res.content or res
+            for _i, b in ipairs(content) do
+                local rp = b.readProgress
+                if not (type(rp) == "table" and rp.completed) then return b end
+            end
+            if res.last == true or #content < size then return nil end
+        end
+        return nil
+    end
+    local found, failed = scan(start, start + 500)
+    if found or failed or start == 0 then return found end
+    return (scan(0, start - 1))
+end
+
 function Sync:getBookAndFollowing(book, count)
     local list = { book }
     if not self.plugin.api or not book or not book.id then return list end
@@ -720,7 +747,11 @@ function Sync:cacheNextChapter(book_id, next_book)
     self.plugin:saveSettings()
 end
 
---- Called from the end-of-book hook. Returns true when we showed our own dialog.
+--- Called from the end-of-book hook when the reader turns past the last
+-- page of a linked chapter. Marks the chapter finished in KOReader, records
+-- it as read on Uchiyomi (buffered when that is not possible right now) and
+-- offers the next chapter of the series. Returns true when we showed our own
+-- dialog, false to let KOReader's end-of-document action run.
 function Sync:promptNextChapter(ui, show_native)
     if not ui or not ui.document then return false end
     local filepath = ui.document.file
@@ -729,19 +760,22 @@ function Sync:promptNextChapter(ui, show_native)
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
     local ButtonDialog = require("ui/widget/buttondialog")
-
-    -- Finishing the chapter: mark complete locally (KOReader's own setting) and
-    -- push 100% (or buffer it) to Uchiyomi.
-    if G_reader_settings and G_reader_settings:isTrue("end_document_auto_mark") then
-        self:markOpenDocComplete(ui)
-    end
-    local total = page_count(ui)
     local NetworkMgr = require("ui/network/manager")
-    if NetworkMgr:isOnline() and self.plugin.api then
-        self.plugin.api:put_progress(book_id, total, true, false)
-    else
-        self:bufferOfflineProgress(book_id, total, total, true)
+    local lfs = require("libs/libkoreader-lfs")
+
+    -- 1. Finished: mark it so in KOReader (book status "finished") ...
+    self:markOpenDocComplete(ui)
+    -- 2. ... and on Uchiyomi. A failed push is buffered like an offline one so
+    --    it is retried on the next flush instead of being lost.
+    local total = page_count(ui)
+    self.plugin.last_pushed_page = total
+    local online = NetworkMgr:isOnline() and self.plugin.api ~= nil
+    local pushed = false
+    if online then
+        local ok, err = self.plugin.api:put_progress(book_id, total, true, false)
+        if ok then pushed = true else logger.warn("kouchiyomi: completion push failed:", tostring(err)) end
     end
+    if not pushed then self:bufferOfflineProgress(book_id, total, total, true) end
 
     local function open_path(path)
         UIManager:nextTick(function()
@@ -750,7 +784,8 @@ function Sync:promptNextChapter(ui, show_native)
         end)
     end
 
-    if not NetworkMgr:isOnline() or not self.plugin.api then
+    -- 3. Next chapter. Without the server: whatever is already on the device.
+    local function offline_dialog(reason)
         local local_next = self:getOfflineNextChapter(filepath)
         local cached = self.plugin.settings.next_chapter_cache and self.plugin.settings.next_chapter_cache[tostring(book_id)]
         local path, title
@@ -759,13 +794,12 @@ function Sync:promptNextChapter(ui, show_native)
         elseif cached then
             title = (cached.metadata and cached.metadata.title) or cached.name
             local p = self:getBookLocalPath(cached, cached.seriesTitle)
-            local lfs = require("libs/libkoreader-lfs")
             if p and lfs.attributes(p, "mode") == "file" then path = p end
         end
         local dialog
         dialog = ButtonDialog:new{
-            title = path and T(_("Offline. Next chapter is on this device: %1"), title or "")
-                or _("Offline. The next chapter is not on this device.\nProgress syncs when you reconnect."),
+            title = path and T(_("%1 Next chapter is on this device: %2"), reason, title or "")
+                or T(_("%1 The next chapter is not on this device.\nProgress syncs when you reconnect."), reason),
             buttons = {
                 { { text = _("Open next chapter"), enabled = path ~= nil, is_enter_default = path ~= nil,
                     callback = function() UIManager:close(dialog); open_path(path) end } },
@@ -774,17 +808,26 @@ function Sync:promptNextChapter(ui, show_native)
             },
         }
         UIManager:show(dialog)
+    end
+
+    if not online then
+        offline_dialog(_("Offline."))
         return true
     end
 
-    local next_book = self.plugin.api:get_next_book(book_id)
+    local next_book, err, code = self.plugin.api:get_next_book(book_id)
     if not next_book then
-        self.plugin:notify(_("This was the last chapter on the server."), "info")
-        return false
+        if code == 404 or code == nil then
+            self.plugin:notify(_("Chapter marked read. This was the last chapter on the server."), "info")
+            return false
+        end
+        -- Server unreachable or unhappy: behave as if offline rather than
+        -- silently dropping the reader into KOReader's own dialog.
+        offline_dialog(T(_("Uchiyomi did not answer (%1)."), tostring(err)))
+        return true
     end
     self:cacheNextChapter(book_id, next_book)
     local local_path = self:getBookLocalPath(next_book, next_book.seriesTitle)
-    local lfs = require("libs/libkoreader-lfs")
     local downloaded = local_path and lfs.attributes(local_path, "mode") == "file"
     local title = book_title(next_book)
     local mode = self.plugin.settings.open_mode or "download"
@@ -808,7 +851,8 @@ function Sync:promptNextChapter(ui, show_native)
         { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
     })
     dialog = ButtonDialog:new{
-        title = downloaded and T(_("Next chapter is ready: %1"), title) or T(_("Next chapter: %1"), title),
+        title = downloaded and T(_("Chapter marked read.\nNext chapter is ready: %1"), title)
+            or T(_("Chapter marked read.\nNext chapter: %1"), title),
         buttons = buttons,
     }
     UIManager:show(dialog)

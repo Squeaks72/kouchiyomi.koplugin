@@ -5,7 +5,9 @@
       * resume from the server's reading position
       * progress pushed to Uchiyomi as you turn pages (debounced) and on close
       * the next page prefetched in the background
-      * a "next chapter" prompt when the last page is reached
+      * turning past the last page marks the chapter read on Uchiyomi and
+        offers the next chapter (also offered when the viewer is closed on
+        the last page)
 
     Bookmarks are not available while streaming: ImageViewer is not a
     document, so KOReader has nothing to attach them to. Download the chapter
@@ -35,6 +37,16 @@ local StreamViewer = ImageViewer:extend{
 function StreamViewer:switchToImageNum(n)
     ImageViewer.switchToImageNum(self, n)
     if self.stream then self.stream:onPageShown(self, n) end
+end
+
+-- ImageViewer silently ignores "next" on the last image; that is the end of
+-- the chapter for us.
+function StreamViewer:onShowNextImage()
+    if self._images_list_cur >= self._images_list_nb then
+        if self.stream then self.stream:onEndReached(self) end
+        return true
+    end
+    return ImageViewer.onShowNextImage(self)
 end
 
 function StreamViewer:onClose()
@@ -108,6 +120,17 @@ function Stream:_push(viewer, n)
     end
 end
 
+--- The reader tried to turn past the last page: the chapter is finished.
+-- Push completion right away (no debounce) and offer the next chapter while
+-- the viewer stays open underneath.
+function Stream:onEndReached(viewer)
+    if viewer._end_prompted then return end
+    viewer._end_prompted = true
+    if viewer._push_fn then UIManager:unschedule(viewer._push_fn); viewer._push_fn = nil end
+    self:_push(viewer, viewer.page_count)
+    self:promptNext(viewer.book, viewer)
+end
+
 function Stream:onViewerClose(viewer)
     viewer._closed = true
     if viewer._push_fn then UIManager:unschedule(viewer._push_fn); viewer._push_fn = nil end
@@ -117,37 +140,72 @@ function Stream:onViewerClose(viewer)
         if bb.free then pcall(bb.free, bb) end
         viewer._cache[k] = nil
     end
-    if n >= viewer.page_count and viewer.page_count > 0 then
+    if n >= viewer.page_count and viewer.page_count > 0 and not viewer._end_prompted then
         UIManager:nextTick(function() self:promptNext(viewer.book) end)
     end
 end
 
-function Stream:promptNext(book)
+--- Offer the chapter after `book`. `viewer` is the open StreamViewer, if
+-- any; it is closed before another chapter opens.
+function Stream:promptNext(book, viewer)
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
-    local nxt = self.plugin.api and self.plugin.api:get_next_book(book.id)
+    if not self.plugin.api then return end
+    local nxt, err, code = self.plugin.api:get_next_book(book.id)
     if not nxt then
-        self.plugin:notify(_("This was the last chapter on the server."), "info")
+        if code == 404 or code == nil then
+            self.plugin:notify(_("Chapter marked read. This was the last chapter on the server."), "info")
+        else
+            self.plugin:notify(T(_("Chapter marked read. Could not fetch the next chapter: %1"), tostring(err)), "error")
+        end
+        if viewer then viewer._end_prompted = false end
         return
+    end
+    self.plugin.sync:cacheNextChapter(book.id, nxt)
+    local title = (nxt.metadata and nxt.metadata.title) or nxt.name or ""
+    local local_path = self.plugin.sync:getBookLocalPath(nxt, nxt.seriesTitle)
+    local lfs = require("libs/libkoreader-lfs")
+    local downloaded = local_path and lfs.attributes(local_path, "mode") == "file"
+    local function leave_viewer()
+        if viewer and not viewer._closed then viewer:onClose() end
+    end
+    local function open_file(path)
+        UIManager:nextTick(function()
+            local filemanagerutil = require("apps/filemanager/filemanagerutil")
+            filemanagerutil.openFile(self.plugin.ui, path)
+        end)
     end
     local ButtonDialog = require("ui/widget/buttondialog")
     local dialog
+    local buttons = {}
+    if downloaded then
+        table.insert(buttons, { { text = _("Open next chapter"), is_enter_default = true, callback = function()
+            UIManager:close(dialog)
+            leave_viewer()
+            open_file(local_path)
+        end } })
+    end
+    table.insert(buttons, { { text = _("Stream next chapter"), is_enter_default = not downloaded, callback = function()
+        UIManager:close(dialog)
+        leave_viewer()
+        UIManager:nextTick(function() self:open(nxt) end)
+    end } })
+    if not downloaded then
+        table.insert(buttons, { { text = _("Download next chapter"), callback = function()
+            UIManager:close(dialog)
+            leave_viewer()
+            self.plugin.sync:downloadBook(nxt, nxt.seriesTitle, open_file)
+        end } })
+    end
+    table.insert(buttons, { { text = _("Close"), callback = function()
+        UIManager:close(dialog)
+        -- Stay on the last page; asking again later is fine.
+        if viewer then viewer._end_prompted = false end
+    end } })
     dialog = ButtonDialog:new{
-        title = T(_("Next chapter: %1"), (nxt.metadata and nxt.metadata.title) or nxt.name or ""),
-        buttons = {
-            { { text = _("Stream next chapter"), is_enter_default = true, callback = function()
-                UIManager:close(dialog)
-                self:open(nxt)
-            end } },
-            { { text = _("Download next chapter"), callback = function()
-                UIManager:close(dialog)
-                self.plugin.sync:downloadBook(nxt, nxt.seriesTitle, function(path)
-                    local filemanagerutil = require("apps/filemanager/filemanagerutil")
-                    filemanagerutil.openFile(self.plugin.ui, path)
-                end)
-            end } },
-            { { text = _("Close"), callback = function() UIManager:close(dialog) end } },
-        },
+        title = downloaded and T(_("Chapter marked read.\nNext chapter is ready: %1"), title)
+            or T(_("Chapter marked read.\nNext chapter: %1"), title),
+        buttons = buttons,
     }
     UIManager:show(dialog)
 end

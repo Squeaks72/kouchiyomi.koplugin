@@ -68,6 +68,7 @@ check("bookmark gone after remove", not found)
 
 check("history", type(api:get_history(5)) == "table")
 check("updates", type(api:get_updates()) == "table")
+check("home", type(api:get_home()) == "table")
 check("favorites", type(api:get_favorites()) == "table")
 
 local thumb = api:download_series_thumbnail(series.id)

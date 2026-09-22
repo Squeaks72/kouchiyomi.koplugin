@@ -195,7 +195,9 @@ function Plugin:onReaderReady()
                 local show_native = function()
                     if this.orig_onEndOfBook then this.orig_onEndOfBook(this, unpack(args)) end
                 end
-                if self.sync:promptNextChapter(ui, show_native) then return true end
+                local ok, handled = pcall(self.sync.promptNextChapter, self.sync, ui, show_native)
+                if ok and handled then return true end
+                if not ok then logger.warn("kouchiyomi: end-of-chapter handler failed:", tostring(handled)) end
             end
             if this.orig_onEndOfBook then return this.orig_onEndOfBook(this, ...) end
         end

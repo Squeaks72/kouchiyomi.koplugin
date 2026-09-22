@@ -357,6 +357,13 @@ function UchiyomiAPI:get_updates()
     return self:request(self:withAdult("/api/updates"))
 end
 
+--- The home screen: { onDeck = { book... }, updated = { series... }, new = { series... } }.
+-- onDeck is Uchiyomi's "Keep reading" rail: per recently read series, the
+-- chapter you are part-way through or, if you finished it, the next unread one.
+function UchiyomiAPI:get_home()
+    return self:request(self:withAdult("/api/home"))
+end
+
 function UchiyomiAPI:get_favorites()
     return self:request(self:withAdult("/api/favorites"))
 end

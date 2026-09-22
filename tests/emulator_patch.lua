@@ -49,7 +49,7 @@ step(5, function()
     for _, it in ipairs(browser.item_table) do if it.book then table.insert(ctx.books, it.book) end end
     browser:showFilterDialog(series, nil); paint()
     browser:onReturn(); paint()
-    browser:showContinueReading(); paint(); check("continue reading view", browser.catalog_title ~= nil); browser:onReturn()
+    browser:showKeepReading(); paint(); check("keep reading view", browser.catalog_title ~= nil); browser:onReturn()
     browser:showBookmarks(); paint(); browser:onReturn()
     browser:showUpdates(); paint(); browser:onReturn()
     browser:showFavorites(); paint(); check("favourites view", browser.item_table[1] ~= nil); browser:onReturn()
