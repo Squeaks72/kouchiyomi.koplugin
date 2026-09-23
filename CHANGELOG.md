@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.6 — 2026-09-22
+- Chapters now open one page per turn by default. KOReader opens a comic in continuous scroll, which
+  reads a webtoon's long strips but turns manga pages into a scroll. Settings ▸ Reading ▸ New chapters ▸
+  View mode switches back to continuous (or out of the plugin's hands) per library habit.
+- Chapters already on the device follow on their next open, the same as the page turning direction.
+
 ## 0.4.5 — 2026-09-22
 - Settings ▸ Reading ▸ Progress bar and interface: mirror the reader's own furniture to match
   right-to-left page turning (`invert_ui_layout`), never mirror it, or leave KOReader alone. Like the

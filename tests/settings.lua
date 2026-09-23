@@ -49,14 +49,17 @@ p:loadSettings()
 assert(p.settings.reading_direction == "rtl", "fresh install should default to RTL")
 assert(p:wantInverseReadingOrder() == true, "RTL means inverse_reading_order")
 local d = p:docDefaults()
-assert(d.inverse_reading_order == true and d.kopt_page_scroll == nil, "only direction seeded by default")
+assert(d.inverse_reading_order == true, "direction seeded by default")
+assert(d.kopt_page_scroll == 0, "and one page per turn, not KOReader's continuous scroll")
+assert(d.kopt_trim_page == nil and d.kopt_hw_dithering == nil, "the rest are left alone")
 assert(require("uchi/sidecar").doc_defaults.inverse_reading_order == true, "sidecar got the seed table")
 
 -- 2. an install that had turned the old checkbox off keeps KOReader untouched
 store = { auto_reading_direction = false }
 p:loadSettings()
 assert(p.settings.reading_direction == "off", "legacy off -> off, got " .. tostring(p.settings.reading_direction))
-assert(p:wantInverseReadingOrder() == nil and next(p:docDefaults()) == nil, "off seeds nothing")
+assert(p:wantInverseReadingOrder() == nil, "off has no direction to seed")
+assert(p:docDefaults().inverse_reading_order == nil, "and seeds none")
 
 -- 3. an install that had it on lands on the new RTL default
 store = { auto_reading_direction = true }

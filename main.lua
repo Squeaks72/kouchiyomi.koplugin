@@ -55,7 +55,9 @@ local DEFAULT_SETTINGS = {
     -- default stands. Only the ones worth having an opinion about for manga are here: panel zoom is
     -- already on for .cbz (readerhighlight initializeExtSettings) and page crop already defaults to auto
     -- (DKOPTREADER_CONFIG_TRIM_PAGE = 1), so neither needed a knob until you want them OFF.
-    chapter_view_mode = "leave",     -- page | continuous | leave   (kopt_page_scroll)
+    -- View mode is the exception that ships with an opinion: KOReader opens a comic in continuous
+    -- scroll (koptoptions page_scroll default 1), which is a webtoon's reading, not a manga's.
+    chapter_view_mode = "page",      -- page | continuous | leave   (kopt_page_scroll)
     chapter_page_crop = "leave",     -- auto | none | leave         (kopt_trim_page)
     chapter_dithering = "leave",     -- on | off | leave            (kopt_hw_dithering)
     chapter_ui_mirror = "leave",     -- match | off | leave         (invert_ui_layout)
