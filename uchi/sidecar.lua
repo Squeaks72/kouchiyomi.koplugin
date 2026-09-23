@@ -13,7 +13,8 @@ local Sidecar = {}
 
 --[[
     KOReader doc settings to seed into a freshly downloaded chapter -- `inverse_reading_order` for the
-    right-to-left page turning manga wants, `kopt_page_scroll`, `kopt_trim_page`, `kopt_hw_dithering`.
+    right-to-left page turning manga wants, `kopt_page_scroll`, `kopt_trim_page`, `kopt_hw_dithering`,
+    `invert_ui_layout`.
     main.lua fills this in from the plugin's settings (see Plugin:docDefaults).
 
     Seeding them here rather than applying them after opening is what keeps the first paint right:

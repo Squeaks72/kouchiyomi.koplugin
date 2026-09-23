@@ -84,4 +84,27 @@ p:loadSettings()
 d = p:docDefaults()
 assert(d.kopt_page_scroll == 1 and d.kopt_trim_page == 1 and d.kopt_hw_dithering == 0, "the other ends of each")
 
+-- 6. interface mirroring: "match" follows the page turning, and only when there is one to follow
+store = { reading_direction = "rtl", chapter_ui_mirror = "match" }
+p:loadSettings()
+assert(p:wantInvertUILayout() == true, "match + rtl mirrors")
+assert(p:docDefaults().invert_ui_layout == true, "and is seeded")
+store = { reading_direction = "ltr", chapter_ui_mirror = "match" }
+p:loadSettings()
+assert(p:wantInvertUILayout() == false, "match + ltr does not mirror")
+store = { reading_direction = "off", chapter_ui_mirror = "match" }
+p:loadSettings()
+assert(p:wantInvertUILayout() == nil, "nothing to match means nothing to say")
+assert(p:docDefaults().invert_ui_layout == nil, "and nothing seeded")
+store = { reading_direction = "auto", chapter_ui_mirror = "match" }
+p:loadSettings()
+assert(p:wantInvertUILayout("RIGHT_TO_LEFT") == true, "auto still resolves per series")
+assert(p:wantInvertUILayout("WEBTOON") == nil, "webtoon says nothing")
+store = { chapter_ui_mirror = "off" }
+p:loadSettings()
+assert(p:wantInvertUILayout() == false and p:docDefaults().invert_ui_layout == false, "never mirror is explicit")
+store = { chapter_ui_mirror = "leave" }
+p:loadSettings()
+assert(p:wantInvertUILayout() == nil, "leave alone")
+
 print("all reading-direction / chapter-default assertions passed")

@@ -46,8 +46,9 @@ Davis), reworked for Uchiyomi's native API.
 - **Reads like manga**: chapters open with right-to-left page turning, so the
   right side of the screen turns forward. Settings ▸ Reading ▸ Page turning
   changes it (Uchiyomi's server calls every series a webtoon, so "follow the
-  series" cannot be trusted to know). New chapters can also be seeded with a
-  view mode, page crop and hardware dithering.
+  series" cannot be trusted to know). The progress bar and the reader's layout
+  can mirror to match. New chapters can also be seeded with a view mode, page
+  crop and hardware dithering.
 - Covers, list/grid views, series subfolders, storage cap, 18+ libraries opt-in.
 
 ## Install

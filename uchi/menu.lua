@@ -210,6 +210,10 @@ function Menu:readingMenu()
         -- everything until that changes upstream.
         dir_item("auto", _("Follow the series (webtoon on most)")),
         dir_item("off", _("Leave KOReader alone")),
+        { text = _("Progress bar and interface:"), enabled = false },
+        pick("chapter_ui_mirror", "match", _("Mirror to match page turning"), "leave"),
+        pick("chapter_ui_mirror", "off", _("Never mirror"), "leave"),
+        pick("chapter_ui_mirror", "leave", _("Leave KOReader alone"), "leave"),
         {
             text = _("New chapters"),
             separator = true,

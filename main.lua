@@ -58,6 +58,7 @@ local DEFAULT_SETTINGS = {
     chapter_view_mode = "leave",     -- page | continuous | leave   (kopt_page_scroll)
     chapter_page_crop = "leave",     -- auto | none | leave         (kopt_trim_page)
     chapter_dithering = "leave",     -- on | off | leave            (kopt_hw_dithering)
+    chapter_ui_mirror = "leave",     -- match | off | leave         (invert_ui_layout)
 
     sync_progress = true,
     sync_bookmarks = true,
@@ -149,6 +150,20 @@ function Plugin:wantInverseReadingOrder(dir)
 end
 
 --[[
+    Whether the reader's own furniture -- the progress bar, and the layout mirroring KOReader applies
+    inside the reader -- should be flipped to match right-to-left reading. nil = leave KOReader alone.
+
+    "match" follows the page turning direction, so it says nothing when the direction is itself being
+    left alone or when "auto" has no series metadata to go on.
+--]]
+function Plugin:wantInvertUILayout(dir)
+    local mode = self.settings and self.settings.chapter_ui_mirror or "leave"
+    if mode == "match" then return self:wantInverseReadingOrder(dir) end
+    if mode == "off" then return false end
+    return nil
+end
+
+--[[
     The doc settings a freshly downloaded chapter should start life with, as KOReader's own sidecar keys.
 
     Seeded at download time (uchi/sidecar) rather than applied after opening, because KOReader reads all
@@ -177,6 +192,9 @@ function Plugin:docDefaults()
     -- Hardware dithering: the Libra 2 (Mk7) can do it, and scan gradients band badly without it.
     if s.chapter_dithering == "on" then t.kopt_hw_dithering = 1
     elseif s.chapter_dithering == "off" then t.kopt_hw_dithering = 0 end
+
+    local mirror = self:wantInvertUILayout()
+    if mirror ~= nil then t.invert_ui_layout = mirror end
 
     return t
 end
@@ -380,6 +398,15 @@ function Plugin:onReaderReady()
         if want ~= nil and ui.view then
             ui.view:onToggleReadingOrder(want)
             if ui.doc_settings then ui.doc_settings:saveSetting("inverse_reading_order", want) end
+        end
+
+        -- Same reach-back as the direction, and the same shape of call: onToggleUILayoutMiroring takes
+        -- an explicit boolean and does nothing when it already matches. (The upstream method name is
+        -- misspelled with one r -- readerview.lua L1003 -- so this is not a typo to fix.)
+        local mirror = self:wantInvertUILayout(dir)
+        if mirror ~= nil and ui.view and ui.view.onToggleUILayoutMiroring then
+            ui.view:onToggleUILayoutMiroring(mirror)
+            if ui.doc_settings then ui.doc_settings:saveSetting("invert_ui_layout", mirror) end
         end
 
         -- View mode reaches back into chapters downloaded before the setting existed, because it has a

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5 — 2026-09-22
+- Settings ▸ Reading ▸ Progress bar and interface: mirror the reader's own furniture to match
+  right-to-left page turning (`invert_ui_layout`), never mirror it, or leave KOReader alone. Like the
+  page turning itself, this reaches chapters already on the device the next time they open.
+
 ## 0.4.4 — 2026-09-22
 - Manga reads right to left, and now so does the plugin: chapters open with right-to-left page turning
   by default (the tap zone on the right turns forward). Settings ▸ Reading ▸ Page turning can set it to
