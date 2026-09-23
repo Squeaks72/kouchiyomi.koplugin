@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.7 — 2026-09-22
+- View mode now decides per series instead of per library: a chapter's pages are measured when it
+  opens, and Toonily/Manhwa18-style long strips get continuous scroll while manga pages keep one page
+  per turn. The answer is remembered for the series, so its later chapters arrive already set.
+  - The threshold (height ≥ 2.5× width) comes from measuring the library: manga sources run 1.40-1.50
+    with one page at 1.99, the webtoon sources sit at a median of ~20 and reach 45.
+  - Three pages are sampled and the middle one decides, so a normal-looking cover inside a long-strip
+    chapter (or one tall spread in a manga) cannot swing it.
+- "One page per turn", "Continuous scroll" and "Leave KOReader alone" are all still there to override it.
+
 ## 0.4.6 — 2026-09-22
 - Chapters now open one page per turn by default. KOReader opens a comic in continuous scroll, which
   reads a webtoon's long strips but turns manga pages into a scroll. Settings ▸ Reading ▸ New chapters ▸

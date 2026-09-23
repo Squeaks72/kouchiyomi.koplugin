@@ -50,9 +50,12 @@ assert(p.settings.reading_direction == "rtl", "fresh install should default to R
 assert(p:wantInverseReadingOrder() == true, "RTL means inverse_reading_order")
 local d = p:docDefaults()
 assert(d.inverse_reading_order == true, "direction seeded by default")
-assert(d.kopt_page_scroll == 0, "and one page per turn, not KOReader's continuous scroll")
+assert(p.settings.chapter_view_mode == "auto", "view mode decides per series by default")
+assert(d.kopt_page_scroll == nil, "an unseen series cannot be seeded a view mode")
 assert(d.kopt_trim_page == nil and d.kopt_hw_dithering == nil, "the rest are left alone")
-assert(require("uchi/sidecar").doc_defaults.inverse_reading_order == true, "sidecar got the seed table")
+local seeded = require("uchi/sidecar").doc_defaults
+assert(type(seeded) == "function", "sidecar is handed a function, since the seed depends on the series")
+assert(seeded({ seriesId = "anything" }).inverse_reading_order == true, "and it answers with the defaults")
 
 -- 2. an install that had turned the old checkbox off keeps KOReader untouched
 store = { auto_reading_direction = false }
@@ -109,5 +112,32 @@ assert(p:wantInvertUILayout() == false and p:docDefaults().invert_ui_layout == f
 store = { chapter_ui_mirror = "leave" }
 p:loadSettings()
 assert(p:wantInvertUILayout() == nil, "leave alone")
+
+-- 7. auto view mode: seeded from what an earlier chapter of that series turned out to be
+store = { chapter_view_mode = "auto", long_strip_series = { webtoon = true, manga = false } }
+p:loadSettings()
+assert(p:docDefaults("webtoon").kopt_page_scroll == 1, "a known long-strip series scrolls")
+assert(p:docDefaults("manga").kopt_page_scroll == 0, "a known page series turns")
+assert(p:docDefaults("unseen").kopt_page_scroll == nil, "an unseen one says nothing")
+assert(p:docDefaults().kopt_page_scroll == nil, "and so does no series at all")
+
+-- 8. the measurement itself, against the shapes this library actually holds
+local function fake_doc(count, ratios)
+    return {
+        getPageCount = function() return count end,
+        getNativePageDimensions = function(_self, n)
+            return { w = 1000, h = 1000 * (ratios[n] or ratios[#ratios]) }
+        end,
+    }
+end
+local measure = p._measureLongStrip
+assert(measure(fake_doc(3, {1.41, 1.50, 1.99})) == false, "manga pages (Weeb Central's widest) are pages")
+assert(measure(fake_doc(3, {13.89, 19.44, 45.63})) == true, "Toonily strips are strips")
+-- The odd normal-looking page inside a long-strip chapter must not swing it, nor one tall page a manga.
+assert(measure(fake_doc(3, {1.79, 20.44, 30.67})) == true, "median ignores Manhwa18's stray 1.79")
+assert(measure(fake_doc(3, {1.41, 1.45, 30.00})) == false, "and ignores one stray tall page in a manga")
+assert(measure(fake_doc(1, {2.49})) == false, "just under the threshold")
+assert(measure(fake_doc(1, {2.50})) == true, "exactly at it")
+assert(measure({}) == nil, "a document that cannot say says nothing")
 
 print("all reading-direction / chapter-default assertions passed")

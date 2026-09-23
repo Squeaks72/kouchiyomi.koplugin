@@ -222,9 +222,10 @@ function Menu:readingMenu()
             -- device keep whatever they were last closed with.
             sub_item_table = {
                 { text = _("View mode:"), enabled = false },
-                pick("chapter_view_mode", "page", _("One page per turn"), "page"),
-                pick("chapter_view_mode", "continuous", _("Continuous scroll (webtoons)"), "page"),
-                pick("chapter_view_mode", "leave", _("Leave KOReader alone"), "page"),
+                pick("chapter_view_mode", "auto", _("Match the page shape"), "auto"),
+                pick("chapter_view_mode", "page", _("One page per turn"), "auto"),
+                pick("chapter_view_mode", "continuous", _("Continuous scroll (webtoons)"), "auto"),
+                pick("chapter_view_mode", "leave", _("Leave KOReader alone"), "auto"),
                 { text = _("Page crop:"), enabled = false, separator = false },
                 pick("chapter_page_crop", "auto", _("Auto (trim scan margins)"), "leave"),
                 pick("chapter_page_crop", "none", _("None (keep full-bleed art)"), "leave"),

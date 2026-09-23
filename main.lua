@@ -33,6 +33,16 @@ local Plugin = WidgetContainer:extend{
     api = nil,
 }
 
+--[[
+    Height/width at which a page stops being a page and becomes a strip.
+
+    Measured across this library rather than guessed: manga sources (Weeb Central, MangaDex, MangaHub,
+    TCB Scans and the hentai ones) run 1.40-1.50 with a single page at 1.99, while the webtoon sources
+    (Toonily, Manhwa18.cc) sit at a median of ~20 and reach 45. Anything between 2 and 13 is nobody's
+    house style, so the threshold sits in that gap with room on both sides.
+--]]
+local LONG_STRIP_RATIO = 2.5
+
 local DEFAULT_SETTINGS = {
     server_url = "",
     username = "",
@@ -56,8 +66,10 @@ local DEFAULT_SETTINGS = {
     -- already on for .cbz (readerhighlight initializeExtSettings) and page crop already defaults to auto
     -- (DKOPTREADER_CONFIG_TRIM_PAGE = 1), so neither needed a knob until you want them OFF.
     -- View mode is the exception that ships with an opinion: KOReader opens a comic in continuous
-    -- scroll (koptoptions page_scroll default 1), which is a webtoon's reading, not a manga's.
-    chapter_view_mode = "page",      -- page | continuous | leave   (kopt_page_scroll)
+    -- scroll (koptoptions page_scroll default 1), which is a webtoon's reading, not a manga's. "auto"
+    -- decides per series from the shape of the pages -- see LONG_STRIP_RATIO.
+    chapter_view_mode = "auto",      -- auto | page | continuous | leave  (kopt_page_scroll)
+    long_strip_series = {},          -- series id -> true/false, learned from the pages themselves
     chapter_page_crop = "leave",     -- auto | none | leave         (kopt_trim_page)
     chapter_dithering = "leave",     -- on | off | leave            (kopt_hw_dithering)
     chapter_ui_mirror = "leave",     -- match | off | leave         (invert_ui_layout)
@@ -130,7 +142,11 @@ function Plugin:loadSettings()
         local legacy = self.settings_file:readSetting("auto_reading_direction")
         self.settings.reading_direction = (legacy == false) and "off" or "rtl"
     end
-    require("uchi/sidecar").doc_defaults = self:docDefaults()
+    -- A function, not a table: what a chapter should be seeded with depends on which series it belongs
+    -- to, and uchi/sidecar is the only place that knows that at download time.
+    require("uchi/sidecar").doc_defaults = function(book)
+        return self:docDefaults(book and book.seriesId)
+    end
 end
 
 --[[
@@ -150,6 +166,34 @@ function Plugin:wantInverseReadingOrder(dir)
     end
     return nil              -- "off"
 end
+
+--[[
+    Whether this document's pages are long strips (a webtoon) rather than pages (manga), by measuring
+    them. Returns nil when the document cannot say.
+
+    Three pages, not one: a cover or a credits page is often a normal page in an otherwise long-strip
+    chapter -- the sampling of this library turned up a 1.79 among Manhwa18.cc's ~20s -- so the middle
+    value decides and a single odd page cannot swing it.
+--]]
+local function measureLongStrip(doc)
+    if not (doc and doc.getNativePageDimensions and doc.getPageCount) then return nil end
+    local ok, count = pcall(doc.getPageCount, doc)
+    if not ok or not count or count < 1 then return nil end
+    local ratios = {}
+    for _i, pageno in ipairs({ 1, math.ceil(count / 2), count }) do
+        local got, dim = pcall(doc.getNativePageDimensions, doc, pageno)
+        if got and dim and dim.w and dim.h and dim.w > 0 then
+            table.insert(ratios, dim.h / dim.w)
+        end
+    end
+    if #ratios == 0 then return nil end
+    table.sort(ratios)
+    return ratios[math.ceil(#ratios / 2)] >= LONG_STRIP_RATIO
+end
+
+-- Exposed for tests/settings.lua: the threshold and the median-of-three are the parts that would go
+-- wrong quietly, reading a whole library in the wrong mode without erroring once.
+Plugin._measureLongStrip = measureLongStrip
 
 --[[
     Whether the reader's own furniture -- the progress bar, and the layout mirroring KOReader applies
@@ -174,7 +218,7 @@ end
     has its own values from the last time it was closed, so only reading direction (which this plugin
     enforces on open) reaches back to those.
 --]]
-function Plugin:docDefaults()
+function Plugin:docDefaults(series_id)
     local s = self.settings or {}
     local t = {}
 
@@ -183,8 +227,17 @@ function Plugin:docDefaults()
 
     -- KOReader opens a fresh comic in continuous (scroll) view: koptoptions' page_scroll defaults to 1.
     -- That is right for a webtoon's long strips and wrong for manga pages, which want one page per turn.
-    if s.chapter_view_mode == "page" then t.kopt_page_scroll = 0
-    elseif s.chapter_view_mode == "continuous" then t.kopt_page_scroll = 1 end
+    --
+    -- "auto" can only seed a series it has already seen: the shape of the pages is not knowable until a
+    -- chapter is open. The first chapter of a series therefore opens on KOReader's default and is
+    -- corrected in the open hook, which records the answer; every chapter downloaded after that arrives
+    -- already right.
+    local view = s.chapter_view_mode
+    if view == "auto" then
+        local long = series_id and (s.long_strip_series or {})[series_id]
+        if long ~= nil then t.kopt_page_scroll = long and 1 or 0 end
+    elseif view == "page" then t.kopt_page_scroll = 0
+    elseif view == "continuous" then t.kopt_page_scroll = 1 end
 
     -- trim_page: 3 = none, 1 = auto (koptoptions L99-110). Auto is already the global default; "none" is
     -- here for full-bleed colour pages, where cropping eats art that reaches the edge.
@@ -415,8 +468,26 @@ function Plugin:onReaderReady()
         -- clean event to do it with. The other seeded defaults (crop, dithering) need the document
         -- re-rendered, so they only apply to chapters downloaded from here on.
         local scroll = self.settings.chapter_view_mode
-        if (scroll == "page" or scroll == "continuous") and ui.view then
-            local want_scroll = scroll == "continuous"
+        local want_scroll
+        if scroll == "auto" then
+            want_scroll = measureLongStrip(ui.document)
+            if want_scroll ~= nil then
+                -- Remembered per series so the rest of its chapters can be seeded at download time
+                -- instead of each one being measured and flipped on its first open.
+                local sid = ds and ds:readSetting("uchiyomi_series_id")
+                if sid and (self.settings.long_strip_series or {})[sid] ~= want_scroll then
+                    self.settings.long_strip_series = self.settings.long_strip_series or {}
+                    self.settings.long_strip_series[sid] = want_scroll
+                    self:saveSettings()
+                    require("uchi/sidecar").doc_defaults = function(book)
+                        return self:docDefaults(book and book.seriesId)
+                    end
+                end
+            end
+        elseif scroll == "page" or scroll == "continuous" then
+            want_scroll = scroll == "continuous"
+        end
+        if want_scroll ~= nil and ui.view then
             if ui.view.page_scroll ~= want_scroll then
                 local Event = require("ui/event")
                 ui:handleEvent(Event:new("SetScrollMode", want_scroll))
