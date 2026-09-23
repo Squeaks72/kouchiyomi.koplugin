@@ -11,6 +11,17 @@ local logger = require("logger")
 
 local Sidecar = {}
 
+--[[
+    KOReader doc settings to seed into a freshly downloaded chapter -- `inverse_reading_order` for the
+    right-to-left page turning manga wants, `kopt_page_scroll`, `kopt_trim_page`, `kopt_hw_dithering`.
+    main.lua fills this in from the plugin's settings (see Plugin:docDefaults).
+
+    Seeding them here rather than applying them after opening is what keeps the first paint right:
+    KOReader reads these in ReaderView/ReaderZooming onReadSettings (readerview.lua ~L980), so a file
+    that arrives with them set opens correctly with no toggle, no re-render and no notification.
+--]]
+Sidecar.doc_defaults = nil
+
 local function custom_metadata_paths(filepath)
     local sdr1 = filepath:gsub("%.%w+$", "") .. ".sdr"
     local sdr2 = filepath .. ".sdr"
@@ -162,6 +173,12 @@ function Sidecar.saveBookMetadata(filepath, book, series_title, series)
         cds:saveSetting("uchiyomi_book_id", book.id)
         cds:saveSetting("uchiyomi_series_id", book.seriesId)
         if direction then cds:saveSetting("uchiyomi_reading_direction", direction) end
+        -- Only keys the file has no opinion on yet: KOReader writes its own back on every document it
+        -- closes (ReaderView/ReaderKoptListener onSaveSettings), so overwriting them would undo a page
+        -- turn direction or a view mode chosen by hand on a chapter that has already been read.
+        for key, value in pairs(Sidecar.doc_defaults or {}) do
+            if not (cds.has and cds:has(key)) then cds:saveSetting(key, value) end
+        end
         cds:saveSetting("custom_props", custom_props)
         cds:saveSetting("doc_props", doc_props)
         if cds.flushCustomMetadata then

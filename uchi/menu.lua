@@ -175,6 +175,22 @@ function Menu:readingMenu()
             callback = function() p.settings.open_mode = value; p:saveSettings() end,
         }
     end
+    -- Every radio row here writes one plugin setting and then hands uchi/sidecar the new seed table, so
+    -- the next download already carries it.
+    local function pick(key, value, label, default)
+        return {
+            text = label,
+            checked_func = function() return (p.settings[key] or default) == value end,
+            radio = true,
+            keep_menu_open = true,
+            callback = function()
+                p.settings[key] = value
+                p:saveSettings()
+                require("uchi/sidecar").doc_defaults = p:docDefaults()
+            end,
+        }
+    end
+    local function dir_item(value, label) return pick("reading_direction", value, label, "rtl") end
     return {
         { text = _("When tapping a chapter:"), enabled = false },
         mode_item("download", _("Download, then open (recommended)")),
@@ -187,12 +203,33 @@ function Menu:readingMenu()
             separator = true,
             callback = function() p.settings.offer_stream = not p.settings.offer_stream; p:saveSettings() end,
         },
+        { text = _("Page turning:"), enabled = false },
+        dir_item("rtl", _("Right to left (manga)")),
+        dir_item("ltr", _("Left to right")),
+        -- Honest label: the server says WEBTOON for every owned series, so this reads left-to-right on
+        -- everything until that changes upstream.
+        dir_item("auto", _("Follow the series (webtoon on most)")),
+        dir_item("off", _("Leave KOReader alone")),
         {
-            text = _("Follow the series' reading direction (RTL for manga)"),
-            checked_func = function() return p.settings.auto_reading_direction ~= false end,
-            keep_menu_open = true,
+            text = _("New chapters"),
             separator = true,
-            callback = function() p.settings.auto_reading_direction = not (p.settings.auto_reading_direction ~= false); p:saveSettings() end,
+            -- These are written into a chapter's sidecar as it downloads, which is the only moment
+            -- KOReader will read them without the document being re-rendered. Chapters already on the
+            -- device keep whatever they were last closed with.
+            sub_item_table = {
+                { text = _("View mode:"), enabled = false },
+                pick("chapter_view_mode", "page", _("One page per turn"), "leave"),
+                pick("chapter_view_mode", "continuous", _("Continuous scroll (webtoons)"), "leave"),
+                pick("chapter_view_mode", "leave", _("Leave KOReader alone"), "leave"),
+                { text = _("Page crop:"), enabled = false, separator = false },
+                pick("chapter_page_crop", "auto", _("Auto (trim scan margins)"), "leave"),
+                pick("chapter_page_crop", "none", _("None (keep full-bleed art)"), "leave"),
+                pick("chapter_page_crop", "leave", _("Leave KOReader alone"), "leave"),
+                { text = _("Hardware dithering:"), enabled = false, separator = false },
+                pick("chapter_dithering", "on", _("On (smoother scan gradients)"), "leave"),
+                pick("chapter_dithering", "off", _("Off"), "leave"),
+                pick("chapter_dithering", "leave", _("Leave KOReader alone"), "leave"),
+            },
         },
         {
             text = _("Open the next chapter without asking"),

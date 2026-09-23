@@ -42,11 +42,22 @@ local DEFAULT_SETTINGS = {
 
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
-    auto_reading_direction = true,
     auto_advance = true,             -- end of chapter: open the next one without asking when it is at hand
     read_ahead = 1,                  -- chapters to download in the background after opening one
     delete_read_on_advance = true,   -- drop a finished chapter's file once Uchiyomi has it as read
     footer_sync_indicator = true,
+    -- rtl | ltr | auto | off. Manga reads right-to-left, so that is the default: the tap zone on the
+    -- RIGHT turns FORWARD. "auto" follows the series' own readingDirection, which sounds better than it
+    -- is -- Uchiyomi's BFF hardcodes WEBTOON for every owned series (lib/ownedCatalog.ts seriesDto), so
+    -- "auto" reads left-to-right on everything, which is what sent this setting to RTL by default.
+    reading_direction = "rtl",
+    -- Per-document defaults seeded into a chapter's sidecar as it downloads. "leave" means KOReader's own
+    -- default stands. Only the ones worth having an opinion about for manga are here: panel zoom is
+    -- already on for .cbz (readerhighlight initializeExtSettings) and page crop already defaults to auto
+    -- (DKOPTREADER_CONFIG_TRIM_PAGE = 1), so neither needed a knob until you want them OFF.
+    chapter_view_mode = "leave",     -- page | continuous | leave   (kopt_page_scroll)
+    chapter_page_crop = "leave",     -- auto | none | leave         (kopt_trim_page)
+    chapter_dithering = "leave",     -- on | off | leave            (kopt_hw_dithering)
 
     sync_progress = true,
     sync_bookmarks = true,
@@ -108,6 +119,66 @@ function Plugin:loadSettings()
         local saved = self.settings_file:readSetting(k)
         if saved ~= nil then self.settings[k] = saved else self.settings[k] = v end
     end
+
+    -- Up to v0.2.0 this was `auto_reading_direction`, a checkbox meaning "follow the series". Following
+    -- the series is what read every manga left-to-right, so an install that had it on lands on the new
+    -- RTL default; one that had deliberately turned it off still has KOReader left alone.
+    if self.settings_file:readSetting("reading_direction") == nil then
+        local legacy = self.settings_file:readSetting("auto_reading_direction")
+        self.settings.reading_direction = (legacy == false) and "off" or "rtl"
+    end
+    require("uchi/sidecar").doc_defaults = self:docDefaults()
+end
+
+--[[
+    What `inverse_reading_order` an Uchiyomi chapter should open with: true = right-to-left, false =
+    left-to-right, nil = whatever KOReader would have done.
+
+    `dir` is the series' readingDirection when we have one, and only "auto" consults it.
+--]]
+function Plugin:wantInverseReadingOrder(dir)
+    local mode = self.settings and self.settings.reading_direction or "rtl"
+    if mode == "rtl" then return true end
+    if mode == "ltr" then return false end
+    if mode == "auto" then
+        if dir == "RIGHT_TO_LEFT" then return true end
+        if dir == "LEFT_TO_RIGHT" then return false end
+        return nil          -- WEBTOON, or no metadata at all: not our call to make
+    end
+    return nil              -- "off"
+end
+
+--[[
+    The doc settings a freshly downloaded chapter should start life with, as KOReader's own sidecar keys.
+
+    Seeded at download time (uchi/sidecar) rather than applied after opening, because KOReader reads all
+    of these in ReaderView/ReaderZooming onReadSettings -- a chapter that arrives with them set is right
+    on the first paint, with no toggle, no re-render and no notification. A chapter already on the device
+    has its own values from the last time it was closed, so only reading direction (which this plugin
+    enforces on open) reaches back to those.
+--]]
+function Plugin:docDefaults()
+    local s = self.settings or {}
+    local t = {}
+
+    local rtl = self:wantInverseReadingOrder()
+    if rtl ~= nil then t.inverse_reading_order = rtl end
+
+    -- KOReader opens a fresh comic in continuous (scroll) view: koptoptions' page_scroll defaults to 1.
+    -- That is right for a webtoon's long strips and wrong for manga pages, which want one page per turn.
+    if s.chapter_view_mode == "page" then t.kopt_page_scroll = 0
+    elseif s.chapter_view_mode == "continuous" then t.kopt_page_scroll = 1 end
+
+    -- trim_page: 3 = none, 1 = auto (koptoptions L99-110). Auto is already the global default; "none" is
+    -- here for full-bleed colour pages, where cropping eats art that reaches the edge.
+    if s.chapter_page_crop == "auto" then t.kopt_trim_page = 1
+    elseif s.chapter_page_crop == "none" then t.kopt_trim_page = 3 end
+
+    -- Hardware dithering: the Libra 2 (Mk7) can do it, and scan gradients band badly without it.
+    if s.chapter_dithering == "on" then t.kopt_hw_dithering = 1
+    elseif s.chapter_dithering == "off" then t.kopt_hw_dithering = 0 end
+
+    return t
 end
 
 function Plugin:saveSettings()
@@ -293,22 +364,38 @@ function Plugin:onReaderReady()
     end
     if not self.current_book_id then return end
 
-    -- Reading direction from the series metadata (manga => RTL).
-    if self.settings.auto_reading_direction ~= false then
-        pcall(function()
-            local Sidecar = require("uchi/sidecar")
-            local ds = Sidecar.openDocSettings(filepath, false)
-            local dir = ds and ds:readSetting("uchiyomi_reading_direction")
-            if not dir then
-                local cm = Sidecar.loadCustomMetadata(filepath)
-                dir = cm and cm.uchiyomi_reading_direction
+    -- Reading direction. Chapters downloaded from here are seeded at download time (uchi/sidecar), so
+    -- this is the path that catches everything already on the device -- and the one that turns RTL back
+    -- off if the setting changes. `onToggleReadingOrder(want)` is a no-op when it already matches, so a
+    -- chapter that opened right the first time never shows the "RTL page turning." toast.
+    pcall(function()
+        local Sidecar = require("uchi/sidecar")
+        local ds = Sidecar.openDocSettings(filepath, false)
+        local dir = ds and ds:readSetting("uchiyomi_reading_direction")
+        if not dir then
+            local cm = Sidecar.loadCustomMetadata(filepath)
+            dir = cm and cm.uchiyomi_reading_direction
+        end
+        local want = self:wantInverseReadingOrder(dir)
+        if want ~= nil and ui.view then
+            ui.view:onToggleReadingOrder(want)
+            if ui.doc_settings then ui.doc_settings:saveSetting("inverse_reading_order", want) end
+        end
+
+        -- View mode reaches back into chapters downloaded before the setting existed, because it has a
+        -- clean event to do it with. The other seeded defaults (crop, dithering) need the document
+        -- re-rendered, so they only apply to chapters downloaded from here on.
+        local scroll = self.settings.chapter_view_mode
+        if (scroll == "page" or scroll == "continuous") and ui.view then
+            local want_scroll = scroll == "continuous"
+            if ui.view.page_scroll ~= want_scroll then
+                local Event = require("ui/event")
+                ui:handleEvent(Event:new("SetScrollMode", want_scroll))
+                -- onSetScrollMode does not persist it; without this the next open reverts.
+                if ui.doc_settings then ui.doc_settings:saveSetting("kopt_page_scroll", want_scroll and 1 or 0) end
             end
-            if dir == "RIGHT_TO_LEFT" and ui.view and not ui.view.inverse_reading_order then
-                ui.view:onToggleReadingOrder(true)
-                if ui.doc_settings then ui.doc_settings:saveSetting("inverse_reading_order", true) end
-            end
-        end)
-    end
+        end
+    end)
 
     -- A bookmark tapped in the browser asked to open at a given page.
     if self.pending_goto_page then

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.4 — 2026-09-22
+- Manga reads right to left, and now so does the plugin: chapters open with right-to-left page turning
+  by default (the tap zone on the right turns forward). Settings ▸ Reading ▸ Page turning can set it to
+  left to right, to follow the series' own reading direction, or to leave KOReader alone.
+  - Why the old "follow the series" setting never did this: Uchiyomi's server reports `WEBTOON` as the
+    reading direction for every series it owns, so there was never an RTL to follow.
+- New chapters can be seeded with a view mode (one page per turn vs continuous scroll), page crop and
+  hardware dithering, under Settings ▸ Reading ▸ New chapters. Written into the chapter's sidecar as it
+  downloads, so it is right on the first paint.
+- Chapters already on the device get the reading direction (and view mode) on their next open; crop and
+  dithering apply to new downloads only, and a setting changed by hand on a chapter is never overwritten.
+
 ## 0.4.3 — 2026-09-22
 - Fix: with kokomga installed alongside, the end of a chapter always showed KOReader's own dialog. kokomga loads first (alphabetical) and hooks the same handler with the same marker field, so ours stood down. Ours now wraps whatever handler is present and runs first; a fallback also catches the event as a reader module and closes KOReader's dialog if it slipped through. Diagnostics names the other plugin.
 

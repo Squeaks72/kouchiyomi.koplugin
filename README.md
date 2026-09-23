@@ -43,6 +43,11 @@ Davis), reworked for Uchiyomi's native API.
   Uchiyomi confirms it is read. Both are settings under Reading.
 - **Footer**: "⇅N" while changes wait to sync, "↓N" while downloads run.
 - **Series actions**: favourite, download next unread N, mark all read.
+- **Reads like manga**: chapters open with right-to-left page turning, so the
+  right side of the screen turns forward. Settings ▸ Reading ▸ Page turning
+  changes it (Uchiyomi's server calls every series a webtoon, so "follow the
+  series" cannot be trusted to know). New chapters can also be seeded with a
+  view mode, page crop and hardware dithering.
 - Covers, list/grid views, series subfolders, storage cap, 18+ libraries opt-in.
 
 ## Install
