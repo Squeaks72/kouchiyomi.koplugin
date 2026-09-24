@@ -53,6 +53,7 @@ local DEFAULT_SETTINGS = {
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
     auto_advance = true,             -- end of chapter: open the next one without asking when it is at hand
+    prev_chapter_on_first_page = true, -- turning back from page 1 opens the previous chapter's last page
     read_ahead = 1,                  -- chapters to download in the background after opening one
     delete_read_on_advance = true,   -- drop a finished chapter's file once Uchiyomi has it as read
     footer_sync_indicator = true,
@@ -106,6 +107,7 @@ local DEFAULT_SETTINGS = {
     offline_bookmark_ops = {},
     bookmark_snapshots = {},
     next_chapter_cache = {},
+    prev_chapter_cache = {},
     pending_cleanup = {},
 }
 
@@ -317,6 +319,9 @@ function Plugin:diagnosticsText()
         table.insert(lines, "Inside download folder: " .. tostring(self.sync:isUnderDownloadDir(file)))
         if self.autolink_failure then table.insert(lines, "Auto-link: " .. self.autolink_failure) end
         table.insert(lines, "End-of-chapter hook installed: " .. tostring(ui.status ~= nil and ui.status._kouchiyomi_hooked == true))
+        local paging = ui.paging or ui.rolling
+        table.insert(lines, "Start-of-chapter hook installed: " .. tostring(paging ~= nil and paging._kouchiyomi_prev_hooked == true)
+            .. (self.last_start_of_chapter and ("  (last: " .. self.last_start_of_chapter .. ")") or ""))
         if ui.status and ui.status.orig_onEndOfBook ~= nil then
             table.insert(lines, "ANOTHER plugin also hooks end of book (kokomga?) -- ours now runs first")
         end
@@ -394,6 +399,7 @@ function Plugin:onReaderReady()
     self.current_book_id = filepath and self.sync:getOrMatchBook(filepath) or nil
     self.last_pushed_page = ui and ui.view and ui.view.state and ui.view.state.page or 1
     self.last_end_of_chapter = nil
+    self.last_start_of_chapter = nil
     local NetworkMgr = require("ui/network/manager")
 
     -- A chapter that reached the device some other way (syncthing, USB) is
@@ -435,6 +441,18 @@ function Plugin:onReaderReady()
             if previous then return previous(this, ...) end
         end
     end
+
+    -- Back past the first page opens the previous chapter (see below).
+    self:_installPrevChapterHook(ui)
+
+    -- We were opened by that back-turn: land on the last page rather than at
+    -- the start or at the server's position.
+    if Sync.pending_goto_last then
+        Sync.pending_goto_last = nil
+        local last = ui.document and ui.document.getPageCount and ui.document:getPageCount()
+        if last and last > 0 then self.pending_goto_page = last end
+    end
+
     if not self.current_book_id then return end
 
     -- Reading direction. Chapters downloaded from here are seeded at download time (uchi/sidecar), so
@@ -550,6 +568,86 @@ function Plugin:_removeFooterIndicator()
         pcall(footer.removeAdditionalFooterContent, footer, self._footer_fn)
     end
     self._footer_fn = nil
+end
+
+--[[
+    Where the reader is, precisely enough to tell "the page turned" from "the
+    turn had nowhere to go". A backward turn at the very start of a document
+    changes nothing at all, which is how the start of a chapter is recognised:
+    KOReader raises EndOfBook at the end but has no event for the other end --
+    ReaderPaging:onGotoPageRel simply leaves the view where it is.
+--]]
+local function position_key(module)
+    local view = module.view
+    if not view then return nil end
+    if module.current_pos ~= nil then       -- ReaderRolling (epub and friends)
+        return table.concat({ "r", tostring(module.current_pos), tostring(module.current_page) }, ":")
+    end
+    if view.page_scroll and view.page_states then
+        local first = view.page_states[1]
+        if not first then return nil end
+        return table.concat({ "s", tostring(first.page),
+            tostring(first.visible_area and first.visible_area.y), tostring(#view.page_states) }, ":")
+    end
+    local va = view.visible_area
+    return table.concat({ "p", tostring(module.current_page),
+        tostring(va and va.x), tostring(va and va.y) }, ":")
+end
+
+--[[
+    Every backward page turn -- the swipe, the tap zone and the page keys alike
+    -- reaches the paging module through onGotoViewRel(-1), so that one call is
+    wrapped: if it moved nothing, the reader was on the first page and asked to
+    go further back, which is our cue to open the previous chapter.
+
+    Deliberately not KOReader's "go back" gesture or a new gesture of our own:
+    the ask is for the page turn itself to carry on across the chapter break,
+    the way it does at the other end.
+--]]
+function Plugin:_installPrevChapterHook(ui)
+    local module = ui and (ui.paging or ui.rolling)
+    if not module or module._kouchiyomi_prev_hooked then return end
+    module._kouchiyomi_prev_hooked = true
+    local orig = module.onGotoViewRel
+    if type(orig) ~= "function" then return end
+    module.onGotoViewRel = function(this, diff, no_page_turn, ...)
+        -- no_page_turn = true is ReaderSearch asking "would this turn a page?";
+        -- it is not a reader going anywhere. (When a key event calls this, the
+        -- second argument is the key object, hence the explicit == true.)
+        local backwards = type(diff) == "number" and diff < 0 and no_page_turn ~= true
+        local before = backwards and position_key(this) or nil
+        local ret = orig(this, diff, no_page_turn, ...)
+        if before and before == position_key(this) then
+            self:_handleStartOfBook(ui)
+        end
+        return ret
+    end
+end
+
+--- The start-of-chapter decision, the mirror of _handleEndOfBook: hand over to
+-- the previous chapter when this is a linked Uchiyomi chapter and the setting
+-- is on, and otherwise leave the turn as the no-op it already was.
+function Plugin:_handleStartOfBook(ui)
+    if self.settings.prev_chapter_on_first_page == false then return end
+    if not self.is_active or not self.current_book_id then
+        self.last_start_of_chapter = self.is_active and "not a Uchiyomi chapter" or "plugin inactive"
+        return
+    end
+    if self._prev_chapter_busy then return end
+    self._prev_chapter_busy = true
+    -- Released on the next tick, not at the end of this call: a download or a
+    -- wait for one returns straight away and must not wedge the hook shut.
+    UIManager:nextTick(function() self._prev_chapter_busy = false end)
+    local ok, handled, reason = pcall(self.sync.openPreviousChapter, self.sync, ui)
+    if not ok then
+        self.last_start_of_chapter = "error: " .. tostring(handled)
+        logger.warn("kouchiyomi: previous-chapter handler failed:", tostring(handled))
+        self:notify(i18n.T(i18n._("Could not open the previous chapter: %1"), tostring(handled)), "error")
+    elseif handled then
+        self.last_start_of_chapter = "handled"
+    else
+        self.last_start_of_chapter = "declined: " .. tostring(reason)
+    end
 end
 
 --- The end-of-chapter decision. Returns true when we took over (our dialog

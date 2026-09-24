@@ -48,6 +48,13 @@ local nxt = api:get_next_book(b1.id)
 check("get_next_book", type(nxt) == "table" and nxt.id == all[2].id)
 local last = api:get_next_book(all[#all].id)
 check("get_next_book on last -> nil", last == nil)
+-- Worked out from the series' own chapter list: Uchiyomi routes /next but not
+-- /previous (see uchi/api.lua). tests/prev_chapter.lua covers the search logic
+-- itself; this only checks it agrees with the server on a real series.
+local pv, pverr = api:get_previous_book(all[2].id)
+check("get_previous_book", type(pv) == "table" and pv.id == b1.id, tostring(pverr))
+local first_pv, first_err = api:get_previous_book(b1.id)
+check("get_previous_book on the first chapter -> nil", first_pv == nil and first_err == nil, tostring(first_err))
 
 local progress, _, pb = api:get_read_progress(b1.id)
 check("get_read_progress", pb ~= nil and (progress == false or type(progress) == "table"))

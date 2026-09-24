@@ -1240,6 +1240,131 @@ function Sync:promptNextChapter(ui, show_native)
 end
 
 -- ---------------------------------------------------------------------------
+-- Previous chapter
+-- ---------------------------------------------------------------------------
+
+function Sync:cachePreviousChapter(book_id, prev_book)
+    local desc = next_descriptor(prev_book)
+    if not book_id or not desc then return end
+    local cache = self.plugin.settings.prev_chapter_cache or {}
+    cache[tostring(book_id)] = desc
+    self.plugin.settings.prev_chapter_cache = cache
+    self.plugin:saveSettings()
+end
+
+--- What we already know about the chapter before book_id, without asking the
+-- server: either a remembered answer, or the other side of the read-ahead's
+-- "the chapter after X is this one", which gives an id we can look for on the
+-- device. Returns a book-like table, or an id, or nil.
+function Sync:knownPreviousChapter(book_id)
+    local s = self.plugin.settings
+    local cached = (s.prev_chapter_cache or {})[tostring(book_id)]
+    if cached then return cached end
+    for id, desc in pairs(s.next_chapter_cache or {}) do
+        if type(desc) == "table" and tostring(desc.id) == tostring(book_id) then
+            return nil, id
+        end
+    end
+    return nil
+end
+
+--[[
+    Turning back past the first page of a linked chapter: open the previous
+    chapter of the series at its last page.
+
+    Deliberately not the mirror image of promptNextChapter: going back is not
+    finishing anything, so nothing is marked read, nothing is queued for
+    deletion and the server is only asked which chapter comes before this one.
+
+    Returns true when we took it from here, false plus a reason otherwise (the
+    caller then lets the turn do whatever it would have done, which is nothing).
+--]]
+function Sync:openPreviousChapter(ui)
+    if not ui or not ui.document then return false, "no document" end
+    local filepath = ui.document.file
+    local book_id = filepath and self:getOrMatchBook(filepath)
+    if not book_id then return false, "not linked" end
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local NetworkMgr = require("ui/network/manager")
+    local lfs = require("libs/libkoreader-lfs")
+    local InfoMessage = require("ui/widget/infomessage")
+    local online = NetworkMgr:isOnline() and self.plugin.api ~= nil
+
+    -- 1. Which chapter is before this one. What we already know first: the
+    --    answer is the same offline, and it saves a round trip mid-read.
+    local prev, prev_id = self:knownPreviousChapter(book_id)
+    local local_path = prev and self:getBookLocalPath(prev, prev.seriesTitle)
+    if not prev and prev_id then
+        -- Only an id (learned from the read-ahead's next-chapter cache): enough
+        -- when that chapter is still on the device, which is the usual case for
+        -- one just read.
+        local p = self:getLocalPathForBookId(prev_id)
+        if p then
+            -- On the class, not the instance: the plugin is re-created with the new
+            -- document, so an instance field would not survive the open.
+            Sync.pending_goto_last = true
+            UIManager:nextTick(function()
+                require("apps/filemanager/filemanagerutil").openFile(ui, p)
+            end)
+            return true
+        end
+    end
+    if not prev and online then
+        local msg = InfoMessage:new{ text = _("Looking for the previous chapter...") }
+        UIManager:show(msg)
+        UIManager:forceRePaint()
+        local found, err = self.plugin.api:get_previous_book(book_id)
+        UIManager:close(msg)
+        if found then
+            prev = found
+            self:cachePreviousChapter(book_id, found)
+            local_path = self:getBookLocalPath(prev, prev.seriesTitle)
+            pcall(function() self.plugin.cache:cacheThumbnail("book", prev.id, prev.artVersion) end)
+        elseif err then
+            self.plugin:notify(T(_("Could not fetch the previous chapter: %1"), tostring(err)), "error")
+            return true
+        else
+            self.plugin:notify(_("This is the first chapter of the series."), "info")
+            return true
+        end
+    end
+    if not prev then
+        self.plugin:notify(_("The previous chapter is not on this device, and Uchiyomi cannot be reached."), "info")
+        return true
+    end
+
+    -- 2. Open it at its last page.
+    local function open_at_end(path)
+        -- On the class, not the instance: the plugin is re-created with the new
+        -- document, so an instance field would not survive the open.
+        Sync.pending_goto_last = true
+        UIManager:nextTick(function()
+            require("apps/filemanager/filemanagerutil").openFile(ui, path)
+        end)
+    end
+    if local_path and lfs.attributes(local_path, "mode") == "file" then
+        open_at_end(local_path)
+        return true
+    end
+    if self:isDownloading(prev.id) then
+        self:openWhenReady(prev, local_path, open_at_end)
+        return true
+    end
+    if not online then
+        self.plugin:notify(T(_("%1 is not on this device."), Labels.chapter(prev)), "info")
+        return true
+    end
+    if (self.plugin.settings.open_mode or "download") == "stream" then
+        -- The streamed chapter starts at its last page too; Stream:open clamps.
+        self.plugin.stream:open(prev, (prev.media and tonumber(prev.media.pagesCount)) or 99999)
+    else
+        self:downloadBook(prev, prev.seriesTitle, open_at_end)
+    end
+    return true
+end
+
+-- ---------------------------------------------------------------------------
 -- Offline library (downloaded chapters, no network)
 -- ---------------------------------------------------------------------------
 

@@ -51,6 +51,16 @@ function StreamViewer:onShowNextImage()
     return ImageViewer.onShowNextImage(self)
 end
 
+-- The same at the other end: ImageViewer ignores "previous" on the first
+-- image, and that is the start of the chapter for us.
+function StreamViewer:onShowPrevImage()
+    if self._images_list_cur <= 1 then
+        if self.stream then self.stream:onStartReached(self) end
+        return true
+    end
+    return ImageViewer.onShowPrevImage(self)
+end
+
 function StreamViewer:onClose()
     if self.stream then self.stream:onViewerClose(self) end
     return ImageViewer.onClose(self)
@@ -131,6 +141,55 @@ function Stream:onEndReached(viewer)
     if viewer._push_fn then UIManager:unschedule(viewer._push_fn); viewer._push_fn = nil end
     self:_push(viewer, viewer.page_count)
     self:promptNext(viewer.book, viewer)
+end
+
+--- The reader turned back past the first page: go to the previous chapter,
+-- at its last page. Nothing is marked, nothing is finished; this is only
+-- reading backwards across a chapter break.
+function Stream:onStartReached(viewer)
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    if viewer._start_busy then return end
+    viewer._start_busy = true
+    UIManager:nextTick(function() viewer._start_busy = false end)
+    if self.plugin.settings.prev_chapter_on_first_page == false then return end
+    if not self.plugin.api or not viewer.book then return end
+    local sync = self.plugin.sync
+    local lfs = require("libs/libkoreader-lfs")
+
+    local prev = sync:knownPreviousChapter(viewer.book_id)
+    if not prev then
+        local InfoMessage = require("ui/widget/infomessage")
+        local msg = InfoMessage:new{ text = _("Looking for the previous chapter...") }
+        UIManager:show(msg)
+        UIManager:forceRePaint()
+        local found, err = self.plugin.api:get_previous_book(viewer.book_id)
+        UIManager:close(msg)
+        if not found then
+            self.plugin:notify(err and T(_("Could not fetch the previous chapter: %1"), tostring(err))
+                or _("This is the first chapter of the series."), err and "error" or "info")
+            return
+        end
+        prev = found
+        sync:cachePreviousChapter(viewer.book_id, found)
+    end
+
+    -- A downloaded copy reads better than a streamed one; otherwise stream it,
+    -- starting at its last page (Stream:open clamps to the real page count).
+    local path = sync:getBookLocalPath(prev, prev.seriesTitle)
+    if path and lfs.attributes(path, "mode") == "file" then
+        local Sync = require("uchi/sync")
+        Sync.pending_goto_last = true
+        if not viewer._closed then viewer:onClose() end
+        UIManager:nextTick(function()
+            require("apps/filemanager/filemanagerutil").openFile(self.plugin.ui, path)
+        end)
+        return
+    end
+    if not viewer._closed then viewer:onClose() end
+    UIManager:nextTick(function()
+        self:open(prev, (prev.media and tonumber(prev.media.pagesCount)) or 99999)
+    end)
 end
 
 function Stream:onViewerClose(viewer)

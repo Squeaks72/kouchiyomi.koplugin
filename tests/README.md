@@ -1,6 +1,13 @@
 # Tests
 
-These run with KOReader's own LuaJIT from an extracted KOReader install (the
+`prev_chapter.lua` needs neither KOReader nor a server -- it runs the
+previous-chapter search against a stubbed series list:
+
+```sh
+cd /path/to/kouchiyomi.koplugin && lua5.1 tests/prev_chapter.lua
+```
+
+The rest run with KOReader's own LuaJIT from an extracted KOReader install (the
 Linux AppImage works: `./koreader.AppImage --appimage-extract`), against a live
 Uchiyomi server. They create and remove bookmarks and a silent no-op progress
 write on the first chapter of the first "blame" search hit; nothing else is

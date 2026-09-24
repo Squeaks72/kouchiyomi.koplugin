@@ -244,6 +244,13 @@ function Menu:readingMenu()
             callback = function() p.settings.auto_advance = not (p.settings.auto_advance ~= false); p:saveSettings() end,
         },
         {
+            text = _("Turn back from page 1 to the previous chapter"),
+            help_text = _("Turning back on the first page of a chapter opens the previous one at its last page, the way turning forward on the last page opens the next one. It is downloaded first when it is only on the server."),
+            checked_func = function() return p.settings.prev_chapter_on_first_page ~= false end,
+            keep_menu_open = true,
+            callback = function() p.settings.prev_chapter_on_first_page = not (p.settings.prev_chapter_on_first_page ~= false); p:saveSettings() end,
+        },
+        {
             text_func = function()
                 local n = tonumber(p.settings.read_ahead) or 1
                 if n <= 0 then return _("Read ahead: off") end

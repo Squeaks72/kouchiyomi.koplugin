@@ -334,6 +334,101 @@ function UchiyomiAPI:get_next_book(book_id)
     return nil
 end
 
+-- How many chapters one page of a series' chapter list holds while looking for
+-- a neighbour. Big enough that most series are one request, small enough that
+-- One Piece does not pull a megabyte of JSON onto a Kobo.
+local SERIES_PAGE_SIZE = 100
+
+local function chapter_number(book)
+    if type(book) ~= "table" then return nil end
+    local m = book.metadata or {}
+    return tonumber(m.numberSort) or tonumber(m.number) or tonumber(book.number)
+end
+
+--- The entry before `book_id` in an ordered chapter list. Returns the chapter
+-- (nil when `book_id` is the first one) plus whether `book_id` was in the list
+-- at all, which is what tells "there is nothing before it" from "look further".
+local function preceding(list, book_id)
+    local prev
+    for _i, b in ipairs(list or {}) do
+        if tostring(b.id) == tostring(book_id) then return prev, true end
+        -- A tombstone is listed but has no pages behind it (lib/chapterCleanup),
+        -- so it is not a chapter to go back to -- the server's own /next skips
+        -- these the same way.
+        if not b.pruned then prev = b end
+    end
+    return nil, false
+end
+
+--[[
+    The chapter before this one: the counterpart of get_next_book.
+
+    Uchiyomi has no /previous route -- the server implements it (`bookPrevious`
+    in lib/ownedCatalog.ts) but nothing is routed to it, and the request 404s as
+    an unknown route -- so this reads the series' own chapter list, which comes
+    back in exactly the order adjacency is defined in there: chapter number
+    ascending, then file name.
+
+    Returns the chapter, or nil when this is the first chapter of the series,
+    or nil plus an error when the question could not be answered.
+--]]
+function UchiyomiAPI:get_previous_book(book_id)
+    local book, berr, bcode = self:get_book(book_id)
+    if type(book) ~= "table" or not book.seriesId then
+        return nil, berr or "chapter not found", bcode
+    end
+    local series_id = book.seriesId
+    local number = chapter_number(book)
+
+    local pages = {}
+    local function fetch(p)
+        if p < 0 then return nil end
+        if pages[p] ~= nil then return pages[p] end
+        local res, err, code = self:get_series_books(series_id, p, SERIES_PAGE_SIZE)
+        if type(res) ~= "table" then return nil, err, code end
+        local content = res.content or res
+        pages[p] = content
+        return content, nil, nil, res
+    end
+
+    local first, ferr, fcode, meta = fetch(0)
+    if not first then return nil, ferr or "no chapter list", fcode end
+    local total_pages = tonumber(meta and meta.totalPages) or 1
+
+    -- Which page of the list our chapter is on. The list is sorted by number, so
+    -- it is the last page that does not already start past us. (One request for
+    -- a series that fits on one page, four for a 1,200-chapter One Piece.)
+    local page = 0
+    if total_pages > 1 and number then
+        local lo, hi = 0, total_pages - 1
+        while lo < hi do
+            local mid = math.ceil((lo + hi) / 2)
+            local content = fetch(mid)
+            if not content or #content == 0 then break end
+            local n = chapter_number(content[1])
+            if n and n <= number then lo = mid else hi = mid - 1 end
+        end
+        page = lo
+    end
+
+    -- The page before it too: our chapter may be the first entry on its page,
+    -- and then the answer is the last entry of the one before.
+    local window = {}
+    for _i, b in ipairs(fetch(page - 1) or {}) do table.insert(window, b) end
+    for _i, b in ipairs(fetch(page) or {}) do table.insert(window, b) end
+    local prev, found = preceding(window, book_id)
+    if found then return prev end
+
+    -- Not where the numbers said it would be: two files can share a chapter
+    -- number (the " (2)" copies in this library do), and the tie is broken by a
+    -- file name we do not have here. Rare and worth one slow walk of the series.
+    local all = self:get_all_series_books(series_id)
+    if type(all) ~= "table" then return nil, "chapter not found in its series" end
+    prev, found = preceding(all, book_id)
+    if not found then return nil, "chapter not found in its series" end
+    return prev
+end
+
 function UchiyomiAPI:get_read_progress(book_id)
     local book, err = self:get_book(book_id)
     if not book then return nil, err end

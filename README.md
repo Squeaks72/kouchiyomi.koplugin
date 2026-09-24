@@ -38,6 +38,10 @@ Davis), reworked for Uchiyomi's native API.
   without a dialog when it is on the device, and is downloaded first when it
   is only on the server. The dialog is kept for offline-and-missing, last
   chapter and server errors.
+- **Previous chapter**: turning back on the first page (swipe, tap zone or
+  page key) opens the previous chapter at its last page, downloading it first
+  when it is only on the server. Nothing is marked read or deleted going
+  backwards. Settings ▸ Reading turns it off.
 - **Read ahead & cleanup**: the next chapter(s) download quietly in the
   background after one opens; a finished chapter's file is removed once
   Uchiyomi confirms it is read. Both are settings under Reading.

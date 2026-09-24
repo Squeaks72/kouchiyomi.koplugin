@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 — 2026-09-24
+- Turning back on the first page of a chapter now opens the previous chapter at its last page, the
+  mirror of turning forward past the last one. Swipe, tap zone and page keys all do it; streaming does
+  it too. Nothing is marked read and nothing is deleted going backwards -- it is only reading back
+  across a chapter break.
+  - The chapter is downloaded first when it is only on the server (or streamed, when streaming is your
+    open mode), and a chapter already read once is remembered, so the usual back-turn costs no request.
+  - Uchiyomi routes `/api/books/:id/next` but nothing for `previous`, although the server implements it
+    (`bookPrevious`), so the plugin works it out from the series' own chapter list -- which comes back in
+    exactly the order the server defines adjacency in. `tests/prev_chapter.lua` covers that search and
+    needs neither KOReader nor a server.
+  - Settings ▸ Reading ▸ "Turn back from page 1 to the previous chapter" turns it off.
+
 ## 0.4.7 — 2026-09-22
 - View mode now decides per series instead of per library: a chapter's pages are measured when it
   opens, and Toonily/Manhwa18-style long strips get continuous scroll while manga pages keep one page
