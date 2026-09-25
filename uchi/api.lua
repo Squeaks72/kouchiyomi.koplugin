@@ -435,6 +435,67 @@ function UchiyomiAPI:get_read_progress(book_id)
     return book.readProgress or false, nil, book
 end
 
+--[[
+    Where the reader is in a whole series, not in one chapter: the chapter they
+    are part-way through, or the next unread one when the last chapter they
+    touched is finished. The returned book carries its own readProgress, so the
+    page they stopped on comes with it.
+
+    Two sources, cheapest first:
+      * /api/home's onDeck -- the server's own "Keep reading" rail, which
+        already encodes exactly that rule, one request for every series at once;
+      * /api/history -- per chapter and unbounded by the rail's size, for a
+        series that has fallen off onDeck.
+
+    Returns the book plus where the answer came from, or nil plus a reason.
+--]]
+function UchiyomiAPI:get_series_position(series_id)
+    if not series_id then return nil, "no series" end
+    local want = tostring(series_id)
+
+    local home = self:get_home()
+    if type(home) == "table" and type(home.onDeck) == "table" then
+        for _i, b in ipairs(home.onDeck) do
+            if type(b) == "table" and b.id and tostring(b.seriesId) == want then
+                return b, "on-deck"
+            end
+        end
+    end
+
+    local hist = self:get_history(50)
+    if type(hist) == "table" then
+        for _i, h in ipairs(hist.content or hist) do
+            if type(h) == "table" and tostring(h.series_id) == want and h.book_id then
+                if h.completed then
+                    -- Finished that one: where they are is whatever follows it.
+                    local nxt = self:get_next_book(h.book_id)
+                    if type(nxt) == "table" and nxt.id then return nxt, "history-next" end
+                    return nil, "series finished"
+                end
+                local b = self:get_book(h.book_id)
+                if type(b) == "table" and b.id then
+                    -- The history row holds the page even when the book DTO has
+                    -- no readProgress of its own (progress read silently).
+                    if type(b.readProgress) ~= "table" then
+                        b.readProgress = { page = tonumber(h.page) or 1, completed = false }
+                    end
+                    return b, "history"
+                end
+            end
+        end
+    end
+    return nil, "not in recent reading"
+end
+
+--- Is `book` a later chapter of its series than `other`? nil when the numbers
+-- cannot say: missing on either side, or the same number on two files (this
+-- library has " (2)" copies, and only the file name tells those apart).
+function UchiyomiAPI.chapter_is_after(book, other)
+    local a, b = chapter_number(book), chapter_number(other)
+    if not a or not b or a == b then return nil end
+    return a > b
+end
+
 --- Record progress. silent=true writes exactly what is given (may move
 -- backwards) without touching history; otherwise the server only moves forward.
 function UchiyomiAPI:put_progress(book_id, page, completed, silent)

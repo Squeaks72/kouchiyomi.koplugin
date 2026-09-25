@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0 — 2026-09-24
+- Catching up now works across chapters, not just inside one. Reading five chapters on the phone used
+  to leave the Kobo opening the old chapter with nothing to say -- its own page really was the page you
+  left it on. Opening any chapter of that series now asks the series-level question instead: "Uchiyomi
+  is further along in this series: Ch. 12, page 8 of 20. Go there?" -- and going there opens that
+  chapter at that page.
+  - The chapter is downloaded first when it is only on the server, or streamed when streaming is your
+    open mode; a chapter already downloading in the background is waited for rather than fetched twice.
+  - Where you are in a series comes from Uchiyomi's own "Keep reading" rail (`/api/home` onDeck), which
+    already means "the chapter you are part-way through, or the next unread one" -- one request, and the
+    same answer the web app shows you. A series that has fallen off the rail falls back to `/api/history`.
+  - Forward only: an older position on the server never closes the chapter you deliberately opened, and
+    "Stay here" is remembered for that chapter until KOReader restarts.
+  - Settings ▸ Sync ▸ "When Uchiyomi is on a later chapter": ask (default), jump silently, or ignore.
+    Tools ▸ Uchiyomi ▸ "Jump to where Uchiyomi left off" asks on demand.
+  - `tests/series_position.lua` covers the position lookup and the forward-only rule; like
+    `prev_chapter.lua` it needs neither KOReader nor a server.
+- Fixed: opening at a specific page did not survive the open. A bookmark tapped in the browser recorded
+  its page on the plugin instance that was about to be replaced by the one for the new document, so the
+  page was lost and the chapter opened wherever it had been left -- and the per-chapter progress pull
+  ran anyway and argued with it. Both now go through the same place as the previous-chapter jump.
+
 ## 0.5.0 — 2026-09-24
 - Turning back on the first page of a chapter now opens the previous chapter at its last page, the
   mirror of turning forward past the last one. Swipe, tap zone and page keys all do it; streaming does

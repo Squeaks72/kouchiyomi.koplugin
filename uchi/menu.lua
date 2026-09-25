@@ -52,6 +52,12 @@ function Menu:createMainMenu()
             end,
         })
         table.insert(items, {
+            text = _("Jump to where Uchiyomi left off"),
+            help_text = _("Opens the chapter, and the page, you last read in this series on another device."),
+            enabled_func = function() return linked end,
+            callback = function() p.sync:promptSeriesCatchUp(p.ui, true) end,
+        })
+        table.insert(items, {
             text = linked and _("Unlink current book") or _("Link current book to Uchiyomi"),
             callback = function()
                 if linked then p.sync:unlinkCurrentBook() else p.sync:matchCurrentBook() end
@@ -309,6 +315,12 @@ function Menu:syncMenu()
             text_func = function() return T(_("When Uchiyomi is behind: %1"), labels[p.settings.sync_backward or "prompt"]) end,
             keep_menu_open = true,
             callback = function(tm) cycle("sync_backward"); if tm then tm:updateItems() end end,
+        },
+        {
+            text_func = function() return T(_("When Uchiyomi is on a later chapter: %1"), labels[p.settings.sync_series_catchup or "prompt"]) end,
+            help_text = _("Opening a chapter you have already read past elsewhere offers to jump to the chapter, and the page, Uchiyomi left off on."),
+            keep_menu_open = true,
+            callback = function(tm) cycle("sync_series_catchup"); if tm then tm:updateItems() end end,
         },
         {
             text_func = function() return T(_("Push progress every %1 pages"), p.settings.push_interval or 5) end,

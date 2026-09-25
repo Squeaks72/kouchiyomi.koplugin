@@ -79,6 +79,11 @@ local DEFAULT_SETTINGS = {
     sync_bookmarks = true,
     sync_forward = "silent",         -- prompt | silent | disable
     sync_backward = "prompt",
+    -- Uchiyomi is on a LATER CHAPTER of the series than the one being opened
+    -- (read on the phone, say). Asking is the default: jumping chapters closes
+    -- the document that was just deliberately opened, which is too big a move
+    -- to make without a word.
+    sync_series_catchup = "prompt",  -- prompt | silent | disable
     push_interval = 5,
     reconcile_on_connect = true,
 
@@ -335,6 +340,7 @@ function Plugin:diagnosticsText()
             table.insert(lines, "Related plugins loaded: " .. table.concat(names, ", "))
         end)
         table.insert(lines, "Last end-of-chapter outcome: " .. tostring(self.last_end_of_chapter or "none yet in this chapter"))
+        table.insert(lines, "Last series catch-up outcome: " .. tostring(self.last_catchup or "not asked in this chapter"))
         local page = ui.view and ui.view.state and ui.view.state.page
         local total = ui.document.getPageCount and ui.document:getPageCount()
         table.insert(lines, "Page: " .. tostring(page) .. " / " .. tostring(total))
@@ -445,12 +451,25 @@ function Plugin:onReaderReady()
     -- Back past the first page opens the previous chapter (see below).
     self:_installPrevChapterHook(ui)
 
-    -- We were opened by that back-turn: land on the last page rather than at
-    -- the start or at the server's position.
+    -- Something asked to open this document at a given page: a bookmark tapped
+    -- in the browser, a turn back into the previous chapter (pending_goto_last:
+    -- the last page, whose number is only knowable here), or a catch-up jump to
+    -- where Uchiyomi left off. Claimed before anything can return early, so a
+    -- request never leaks into the document opened after this one -- and on the
+    -- class, because the instance that made it is gone by the time we run.
+    local goto_page = self.pending_goto_page or Sync.pending_goto_page
+    self.pending_goto_page = nil
+    Sync.pending_goto_page = nil
     if Sync.pending_goto_last then
         Sync.pending_goto_last = nil
         local last = ui.document and ui.document.getPageCount and ui.document:getPageCount()
-        if last and last > 0 then self.pending_goto_page = last end
+        if last and last > 0 then goto_page = last end
+    end
+    if goto_page then
+        UIManager:nextTick(function()
+            local Event = require("ui/event")
+            UIManager:broadcastEvent(Event:new("GotoPage", goto_page))
+        end)
     end
 
     if not self.current_book_id then return end
@@ -515,21 +534,13 @@ function Plugin:onReaderReady()
         end
     end)
 
-    -- A bookmark tapped in the browser asked to open at a given page.
-    if self.pending_goto_page then
-        local page = self.pending_goto_page
-        self.pending_goto_page = nil
-        UIManager:nextTick(function()
-            local Event = require("ui/event")
-            UIManager:broadcastEvent(Event:new("GotoPage", page))
-        end)
-    end
-
     local NetworkMgr = require("ui/network/manager")
     if NetworkMgr:isOnline() then
         if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end
         self.bookmarks:flushOffline()
-        if not self.pending_goto_page then self.sync:pullProgress(ui, false) end
+        -- Not when we were told where to open: that page IS the answer, and
+        -- asking the server again would only argue with it.
+        if not goto_page then self.sync:syncOnOpen(ui) end
         self.bookmarks:syncOpenDocument(ui, false)
         -- The chapter we just moved on from may go now that Uchiyomi has it.
         pcall(self.sync.processCleanup, self.sync)

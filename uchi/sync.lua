@@ -22,6 +22,17 @@ local Sync = {}
 Sync.jobs = {}
 Sync.live = nil   -- the most recently created plugin instance
 
+-- Also on the class, and for the same reason: these outlive the plugin
+-- instance that sets them, because they are read by the instance created for
+-- the NEXT document. pending_goto_page is the page to land on once it opens
+-- (nil = wherever it would open anyway), pending_goto_last its "the last page,
+-- whatever number that is" form.
+Sync.pending_goto_page = nil
+Sync.pending_goto_last = nil
+-- book_id -> target book_id the reader said no to, for as long as the reader
+-- runs, so a declined catch-up is not asked again on the next open.
+Sync.catchup_declined = {}
+
 function Sync:new(plugin)
     local o = { plugin = plugin }
     Sync.live = plugin
@@ -296,8 +307,10 @@ function Sync:markOpenDocComplete(ui)
 end
 
 --- Pull server progress for the open document and reconcile with the local
--- position according to the configured strategies.
-function Sync:pullProgress(ui, is_manual)
+-- position according to the configured strategies. `prefetched` is the book
+-- DTO when the caller already has it (syncOnOpen asks the server once and
+-- feeds both halves of the open-time sync).
+function Sync:pullProgress(ui, is_manual, prefetched)
     if not self.plugin.settings.sync_progress then return false end
     if not self.plugin.api or not ui or not ui.document then return false end
     local filepath = ui.document.file
@@ -310,7 +323,13 @@ function Sync:pullProgress(ui, is_manual)
     end
 
     local function do_pull()
-        local progress, err = self.plugin.api:get_read_progress(book_id)
+        local progress, err
+        if type(prefetched) == "table" and tostring(prefetched.id) == tostring(book_id) then
+            progress = prefetched.readProgress or false
+            prefetched = nil   -- a retry (offline, then Wi-Fi) asks for itself
+        else
+            progress, err = self.plugin.api:get_read_progress(book_id)
+        end
         if progress == nil then
             if is_manual then self.plugin:notify(T(_("Could not fetch progress: %1"), tostring(err)), "error") end
             return false
@@ -365,6 +384,190 @@ function Sync:pullProgress(ui, is_manual)
         return false
     end
     return do_pull()
+end
+
+-- ---------------------------------------------------------------------------
+-- Catching up with the rest of the series
+-- ---------------------------------------------------------------------------
+
+--- The series the open document belongs to. The sidecar knows it without the
+-- server (it is written at download time); the book DTO is the fallback for a
+-- chapter that arrived some other way.
+function Sync:getSeriesIdForDoc(filepath, book)
+    if type(book) == "table" and book.seriesId then return book.seriesId end
+    if not filepath then return nil end
+    local ds = Sidecar.openDocSettings(filepath, false)
+    local sid = ds and ds:readSetting("uchiyomi_series_id")
+    if sid then return sid end
+    local cm = Sidecar.loadCustomMetadata(filepath)
+    return cm and cm.uchiyomi_series_id or nil
+end
+
+--- How to name where the server is: "Ch. 12, page 8 of 20".
+local function position_label(i18n, book, page, total)
+    local _, T = i18n._, i18n.T
+    local label = Labels.chapter(book)
+    if not page then return label end
+    if total and total > 0 then return T(_("%1, page %2 of %3"), label, page, total) end
+    return T(_("%1, page %2"), label, page)
+end
+
+--[[
+    Uchiyomi is further along in this SERIES: offer to go to that chapter.
+
+    pullProgress only ever moves inside the chapter that is open, so reading
+    five chapters on the phone leaves the Kobo opening the old one with nothing
+    to say -- its own page is still the page it was. This asks the series-level
+    question instead ("where am I in this series?") and opens that chapter, at
+    the page it was left on.
+
+    Only forward: an older position on the server is not a reason to close what
+    the reader deliberately opened (and turning back past page 1 already walks
+    the series backwards).
+
+    Returns true when it took over -- jumped, or put a dialog on screen -- and
+    false plus a reason otherwise, so the caller can fall back to pullProgress.
+--]]
+function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local strategy = self.plugin.settings.sync_series_catchup or "prompt"
+    -- Every way this can decline is recorded (Tools > Uchiyomi > Diagnostics).
+    local function decline(reason)
+        self.plugin.last_catchup = reason
+        return false, reason
+    end
+    if not is_manual then
+        if strategy == "disable" then return decline("disabled") end
+        if not self.plugin.settings.sync_progress then return decline("progress sync off") end
+    end
+    if not self.plugin.api or not ui or not ui.document then return decline("no document") end
+    local filepath = ui.document.file
+    local book_id = filepath and self:getOrMatchBook(filepath)
+    if not book_id then
+        if is_manual then self.plugin:notify(_("This book is not linked to Uchiyomi. Use 'Link current book' first."), "error") end
+        return decline("not linked")
+    end
+
+    local NetworkMgr = require("ui/network/manager")
+    if not NetworkMgr:isOnline() then
+        if is_manual then NetworkMgr:willRerunWhenOnline(function() self:promptSeriesCatchUp(ui, true) end) end
+        return decline("offline")
+    end
+
+    if type(current_book) ~= "table" or tostring(current_book.id) ~= tostring(book_id) then
+        current_book = self.plugin.api:get_book(book_id)
+    end
+    if type(current_book) ~= "table" then
+        -- The server would not say what this chapter is. The sidecar still
+        -- knows its number, which is all the forward-only check below needs --
+        -- and without it a failed fetch would let a jump go backwards.
+        local idx = self:getOfflineBookInfo(filepath).series_index
+        current_book = idx and { metadata = { numberSort = idx } } or nil
+    end
+    local series_id = self:getSeriesIdForDoc(filepath, current_book)
+    if not series_id then
+        if is_manual then self.plugin:notify(_("Could not work out which series this chapter belongs to."), "error") end
+        return decline("no series")
+    end
+
+    local target, source = self.plugin.api:get_series_position(series_id)
+    if type(target) ~= "table" or not target.id then
+        if is_manual then self.plugin:notify(_("Uchiyomi has no other position in this series."), "info") end
+        return decline(source or "no position")
+    end
+    if tostring(target.id) == tostring(book_id) then
+        -- The chapter that is already open: its page is pullProgress's job.
+        if is_manual then self.plugin:notify(_("This is the chapter Uchiyomi is on."), "info") end
+        return decline("same chapter")
+    end
+    local API = require("uchi/api")
+    if API.chapter_is_after(target, current_book) == false then
+        if is_manual then self.plugin:notify(T(_("Uchiyomi is on an earlier chapter (%1)."), Labels.chapter(target)), "info") end
+        return decline("behind")
+    end
+    local declined_key = tostring(book_id) .. ">" .. tostring(target.id)
+    if not is_manual and Sync.catchup_declined[declined_key] then return decline("declined earlier") end
+
+    -- The page within that chapter. A chapter that is finished, or only ever
+    -- opened, opens at its own start instead.
+    local total = (target.media and tonumber(target.media.pagesCount)) or nil
+    local rp = target.readProgress
+    local page
+    if type(rp) == "table" and not rp.completed then
+        local p = tonumber(rp.page) or 0
+        if p > 1 and (not total or p <= total) then page = p end
+    end
+
+    local lfs = require("libs/libkoreader-lfs")
+    local local_path = self:getBookLocalPath(target, target.seriesTitle)
+    local on_device = local_path and lfs.attributes(local_path, "mode") == "file"
+
+    local function open_at(path)
+        -- On the class, not the instance: the plugin is re-created with the new
+        -- document, so an instance field would not survive the open.
+        Sync.pending_goto_page = page
+        UIManager:nextTick(function()
+            require("apps/filemanager/filemanagerutil").openFile(ui, path)
+        end)
+    end
+    local function go()
+        if on_device then
+            open_at(local_path)
+        elseif self:isDownloading(target.id) then
+            self:openWhenReady(target, local_path, open_at)
+        elseif (self.plugin.settings.open_mode or "download") == "stream" then
+            -- Stream:open reads the server position itself when given no page.
+            self.plugin.stream:open(target, page)
+        else
+            self:downloadBook(target, target.seriesTitle, open_at)
+        end
+    end
+
+    local where = position_label(self.plugin.i18n, target, page, total)
+    if strategy == "silent" and not is_manual then
+        self.plugin:notify(T(_("Uchiyomi left off at %1."), where), "info")
+        self.plugin.last_catchup = "jumped to " .. where
+        go()
+        return true
+    end
+
+    local ConfirmBox = require("ui/widget/confirmbox")
+    local text = T(_("Uchiyomi is further along in this series:\n%1\n\nGo there?"), where)
+    if not on_device then
+        text = text .. "\n\n" .. ((self.plugin.settings.open_mode or "download") == "stream"
+            and _("It will be streamed.") or _("It is not on this device yet and will be downloaded."))
+    end
+    UIManager:show(ConfirmBox:new{
+        text = text,
+        ok_text = _("Go there"),
+        cancel_text = _("Stay here"),
+        ok_callback = function()
+            self.plugin.last_catchup = "offered " .. where .. "; went there"
+            go()
+        end,
+        cancel_callback = function()
+            Sync.catchup_declined[declined_key] = true
+            self.plugin.last_catchup = "offered " .. where .. "; stayed here"
+            -- Staying: reconcile the chapter that is actually open after all.
+            if not is_manual then self:pullProgress(ui, false) end
+        end,
+    })
+    return true
+end
+
+--- The whole open-time progress question, in the right order and on one book
+-- fetch: is the reader's place in this series somewhere else entirely, and if
+-- not, is it elsewhere in this chapter?
+function Sync:syncOnOpen(ui)
+    if not self.plugin.settings.sync_progress then return end
+    if not self.plugin.api or not ui or not ui.document then return end
+    local filepath = ui.document.file
+    local book_id = filepath and self:getOrMatchBook(filepath)
+    if not book_id then return end
+    local _progress, _err, book = self.plugin.api:get_read_progress(book_id)
+    if self:promptSeriesCatchUp(ui, false, book) then return end
+    self:pullProgress(ui, false, book)
 end
 
 -- ---------------------------------------------------------------------------

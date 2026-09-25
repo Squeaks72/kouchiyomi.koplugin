@@ -21,6 +21,14 @@ Davis), reworked for Uchiyomi's native API.
   server is further ahead the reader jumps there (configurable: jump / ask /
   ignore). Offline reads are buffered and flushed when Wi-Fi returns.
   Uchiyomi's state wins ties and is never regressed.
+- **Catch up across chapters**: read on your phone and the Kobo notices it is
+  a whole chapter behind, not just a page. Opening any chapter of that series
+  asks "Uchiyomi is further along in this series: Ch. 12, page 8 of 20. Go
+  there?" and opens that chapter on that page, downloading (or streaming) it
+  first when it is not on the device. Tools ▸ Uchiyomi ▸ **Jump to where
+  Uchiyomi left off** asks on demand; Settings ▸ Sync ▸ "When Uchiyomi is on a
+  later chapter" switches it to jumping silently, or off. Forward only -- an
+  older position on the server never closes the chapter you just opened.
 - **Bookmark sync (two-way)**: KOReader dogear bookmarks ⇄ Uchiyomi page
   bookmarks, reconciled with a three-way merge per chapter, so a bookmark added
   or removed on either side shows up on the other. Works for the open chapter
@@ -77,6 +85,7 @@ Uchiyomi v0.39.
 | KOReader                              | Uchiyomi                                   |
 |---------------------------------------|--------------------------------------------|
 | page N of a downloaded/streamed CBZ   | `PUT /api/books/{id}/progress {page, completed}` |
+| where you are in a series             | `/api/home` onDeck, else `/api/history`     |
 | dogear bookmark on page N             | `PUT/DELETE /api/bookmarks/{bookId}/{page}` |
 | downloaded file ⇄ chapter             | `uchiyomi_book_id` in the sidecar          |
 | whole-chapter download                | `/opds/book/{id}/file` (OPDS token)        |

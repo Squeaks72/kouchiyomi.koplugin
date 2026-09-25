@@ -842,7 +842,9 @@ function UchiBrowser:_openLocal(path, goto_page)
     local ui = self.plugin.ui
     UIManager:nextTick(function()
         UIManager:close(self)
-        if goto_page then self.plugin.pending_goto_page = goto_page end
+        -- On the class: opening the file builds a new plugin instance, so a
+        -- field on this one would never be read.
+        if goto_page then require("uchi/sync").pending_goto_page = goto_page end
         require("apps/filemanager/filemanagerutil").openFile(ui, path)
     end)
 end
