@@ -1157,19 +1157,48 @@ function Sync:deleteDownloadedFile(path)
     end)
 end
 
+--- How long a finished chapter stays on the device before its file goes.
+-- 0 = as soon as Uchiyomi confirms it read, which is what this did
+-- unconditionally until 0.7.0.
+function Sync:cleanupDelay()
+    local days = tonumber(self.plugin.settings.keep_read_chapters_days) or 0
+    if days <= 0 then return 0 end
+    return math.floor(days * 86400)
+end
+
+--[[
+    What to do with one entry of the pending-cleanup list, given nothing but
+    numbers -- the whole retention rule in one place, and the one part of the
+    cleanup worth a test (tests/cleanup.lua).
+
+    Returns:
+      "touch"  the chapter is open again: restart its grace period
+      "forget" the file is gone already; stop tracking it
+      "wait"   still inside its grace period; do not even ask the server
+      "ask"    the grace period is up: the server decides read -> gone
+--]]
+function Sync.cleanupVerdict(age, delay, exists, is_open)
+    if is_open then return "touch" end
+    if not exists then return "forget" end
+    if (tonumber(age) or 0) < (tonumber(delay) or 0) then return "wait" end
+    return "ask"
+end
+
 --- Called when the reader moves on from a finished chapter: the file may go
--- once Uchiyomi confirms the chapter is read (processCleanup).
+-- once Uchiyomi confirms the chapter is read and its grace period is up
+-- (processCleanup). Finishing a chapter again restarts that period.
 function Sync:scheduleCleanup(path, book_id)
     if not path or not book_id then return end
     if self.plugin.settings.delete_read_on_advance == false then return end
     local pend = self.plugin.settings.pending_cleanup or {}
-    pend[path] = tostring(book_id)
+    pend[path] = { id = tostring(book_id), ts = os.time() }
     self.plugin.settings.pending_cleanup = pend
     self.plugin:saveSettings()
 end
 
---- Delete scheduled files whose chapter Uchiyomi has as read. Needs the
--- server; anything it cannot confirm now is tried again later.
+--- Delete scheduled files that are out of their grace period and that
+-- Uchiyomi has as read. Needs the server; anything it cannot confirm now is
+-- tried again later.
 function Sync:processCleanup()
     local pend = self.plugin.settings.pending_cleanup
     if not pend or not next(pend) or not self.plugin.api then return end
@@ -1180,18 +1209,28 @@ function Sync:processCleanup()
     end
     local NetworkMgr = require("ui/network/manager")
     if not NetworkMgr:isOnline() then return end
-    local _ = self.plugin.i18n._
-    local T = self.plugin.i18n.T
     local lfs = require("libs/libkoreader-lfs")
     local open_path = self.plugin.ui and self.plugin.ui.document and self.plugin.ui.document.file
+    local delay = self:cleanupDelay()
+    local now = os.time()
     local removed, changed = {}, false
-    for path, book_id in pairs(pend) do
-        if path == open_path then
-            -- came back to it: leave it alone, decide again next time
-        elseif lfs.attributes(path, "mode") ~= "file" then
+    for path, entry in pairs(pend) do
+        -- Entries written before grace periods existed carried the id alone.
+        -- They start their period now rather than being swept on the upgrade.
+        if type(entry) ~= "table" then
+            entry = { id = tostring(entry), ts = now }
+            pend[path] = entry
+            changed = true
+        end
+        local verdict = Sync.cleanupVerdict(now - (tonumber(entry.ts) or now), delay,
+            lfs.attributes(path, "mode") == "file", path == open_path)
+        if verdict == "touch" then
+            entry.ts = now
+            changed = true
+        elseif verdict == "forget" then
             pend[path] = nil; changed = true
-        else
-            local book, _err, code = self.plugin.api:get_book(book_id)
+        elseif verdict == "ask" then
+            local book, _err, code = self.plugin.api:get_book(entry.id)
             if type(book) == "table" then
                 local rp = book.readProgress
                 if type(rp) == "table" and rp.completed then

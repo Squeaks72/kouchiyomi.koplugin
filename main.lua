@@ -56,6 +56,11 @@ local DEFAULT_SETTINGS = {
     prev_chapter_on_first_page = true, -- turning back from page 1 opens the previous chapter's last page
     read_ahead = 1,                  -- chapters to download in the background after opening one
     delete_read_on_advance = true,   -- drop a finished chapter's file once Uchiyomi has it as read
+    -- ...but not the moment you turn the last page. A chapter you just read is
+    -- the one you are most likely to want back: turning back from page 1 opens
+    -- it, and a catch-up jump can land in it. It is kept this many days first
+    -- (0 = straight away, the pre-0.7 behaviour).
+    keep_read_chapters_days = 7,
     footer_sync_indicator = true,
     -- rtl | ltr | auto | off. Manga reads right-to-left, so that is the default: the tap zone on the
     -- RIGHT turns FORWARD. "auto" follows the series' own readingDirection, which sounds better than it
@@ -358,7 +363,11 @@ function Plugin:diagnosticsText()
     local pc = 0
     for _ in pairs(self.settings.pending_cleanup or {}) do pc = pc + 1 end
     table.insert(lines, "Finished chapters awaiting cleanup: " .. pc)
-    table.insert(lines, "Read ahead: " .. tostring(self.settings.read_ahead) .. "  Delete when read: " .. tostring(self.settings.delete_read_on_advance ~= false) .. "  Auto-advance: " .. tostring(self.settings.auto_advance ~= false))
+    local keep = tonumber(self.settings.keep_read_chapters_days) or 0
+    table.insert(lines, "Read ahead: " .. tostring(self.settings.read_ahead)
+        .. "  Delete when read: " .. tostring(self.settings.delete_read_on_advance ~= false)
+        .. (keep > 0 and (" after " .. keep .. "d") or " straight away")
+        .. "  Auto-advance: " .. tostring(self.settings.auto_advance ~= false))
     local text = table.concat(lines, "\n")
     logger.info("kouchiyomi diagnostics:\n" .. text)
     return text

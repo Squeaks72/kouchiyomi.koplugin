@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.0 — 2026-09-25
+- A finished chapter is no longer deleted the moment Uchiyomi confirms it read. It is now kept for
+  **7 days** first (Settings ▸ Reading ▸ "Grace period before it goes": none / 1 / 3 / 7 / 14 / 30 days).
+  The chapter you just read is the one you are most likely to want straight back -- turning back from
+  the first page opens it, and catching up with Uchiyomi can land in it -- and re-downloading it over
+  Wi-Fi to read one page backwards was a poor trade for the space.
+  - Opening the chapter again restarts its grace period.
+  - Nothing is asked of the server while a chapter is inside its period, so a week of pending files
+    costs no requests; the read check still happens at the end, so a chapter you un-read on Uchiyomi is
+    kept as before.
+  - Chapters already queued for deletion by an older version start a fresh period instead of being
+    swept on the upgrade.
+  - The storage cap (Settings ▸ Downloads) still evicts oldest-first regardless, so a long grace period
+    cannot quietly fill the device when a cap is set.
+  - "Delete a finished chapter once Uchiyomi has it marked read" is unchanged and still turns the whole
+    thing off; "none" reproduces the old delete-straight-away behaviour exactly.
+  - `tests/cleanup.lua` covers the retention rule; like the other two offline tests it needs neither
+    KOReader nor a server.
+
 ## 0.6.0 — 2026-09-24
 - Catching up now works across chapters, not just inside one. Reading five chapters on the phone used
   to leave the Kobo opening the old chapter with nothing to say -- its own page really was the page you

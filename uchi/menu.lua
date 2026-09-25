@@ -272,10 +272,38 @@ function Menu:readingMenu()
         },
         {
             text = _("Delete a finished chapter once Uchiyomi has it marked read"),
-            help_text = _("When you move on to the next chapter, the finished file is removed after the server confirms it is read. Progress and bookmarks stay on Uchiyomi."),
+            help_text = _("When you move on to the next chapter, the finished file is removed after the server confirms it is read. Progress and bookmarks stay on Uchiyomi, so the chapter can always be downloaded again."),
             checked_func = function() return p.settings.delete_read_on_advance ~= false end,
             keep_menu_open = true,
-            callback = function() p.settings.delete_read_on_advance = not (p.settings.delete_read_on_advance ~= false); p:saveSettings() end,
+            callback = function(tm)
+                p.settings.delete_read_on_advance = not (p.settings.delete_read_on_advance ~= false)
+                p:saveSettings()
+                if tm then tm:updateItems() end
+            end,
+        },
+        {
+            text_func = function()
+                local d = tonumber(p.settings.keep_read_chapters_days) or 0
+                if d <= 0 then return _("Grace period before it goes: none, delete it straight away") end
+                return T(_("Grace period before it goes: %1 day(s)"), d)
+            end,
+            help_text = _("A chapter you have just read is the one you are most likely to want back -- turning back from the first page opens it, and catching up with Uchiyomi can land in it. The clock restarts if you open the chapter again. Downloads over the storage cap are still evicted oldest-first."),
+            enabled_func = function() return p.settings.delete_read_on_advance ~= false end,
+            keep_menu_open = true,
+            callback = function(tm)
+                local steps = { 0, 1, 3, 7, 14, 30 }
+                local cur = tonumber(p.settings.keep_read_chapters_days) or 0
+                local nxt = steps[1]
+                for i, v in ipairs(steps) do
+                    if v == cur then nxt = steps[i % #steps + 1]; break end
+                    -- a hand-typed value that is not on the ladder steps up to
+                    -- the next one above it
+                    if v > cur then nxt = v; break end
+                end
+                p.settings.keep_read_chapters_days = nxt
+                p:saveSettings()
+                if tm then tm:updateItems() end
+            end,
         },
     }
 end

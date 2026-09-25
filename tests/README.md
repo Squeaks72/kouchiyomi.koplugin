@@ -1,12 +1,13 @@
 # Tests
 
-`prev_chapter.lua` and `series_position.lua` need neither KOReader nor a
-server -- they run the previous-chapter search and the "where am I in this
-series?" lookup against stubbed responses:
+`prev_chapter.lua`, `series_position.lua` and `cleanup.lua` need neither
+KOReader nor a server -- they run the previous-chapter search, the "where am I
+in this series?" lookup and the finished-chapter retention rule against stubs:
 
 ```sh
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/prev_chapter.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/series_position.lua
+cd /path/to/kouchiyomi.koplugin && lua5.1 tests/cleanup.lua
 ```
 
 The rest run with KOReader's own LuaJIT from an extracted KOReader install (the
