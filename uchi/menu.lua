@@ -172,6 +172,19 @@ function Menu:readingMenu()
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
     local p = self.plugin
+    -- Step one setting along a ladder of presets. A hand-edited value that is
+    -- not on the ladder steps up to the next rung above it.
+    local function cycle(key, steps, tm)
+        local cur = tonumber(p.settings[key]) or 0
+        local nxt = steps[1]
+        for i, v in ipairs(steps) do
+            if v == cur then nxt = steps[i % #steps + 1]; break end
+            if v > cur then nxt = v; break end
+        end
+        p.settings[key] = nxt
+        p:saveSettings()
+        if tm then tm:updateItems() end
+    end
     local function mode_item(value, label)
         return {
             text = label,
@@ -290,20 +303,18 @@ function Menu:readingMenu()
             help_text = _("A chapter you have just read is the one you are most likely to want back -- turning back from the first page opens it, and catching up with Uchiyomi can land in it. The clock restarts if you open the chapter again. Downloads over the storage cap are still evicted oldest-first."),
             enabled_func = function() return p.settings.delete_read_on_advance ~= false end,
             keep_menu_open = true,
-            callback = function(tm)
-                local steps = { 0, 1, 3, 7, 14, 30 }
-                local cur = tonumber(p.settings.keep_read_chapters_days) or 0
-                local nxt = steps[1]
-                for i, v in ipairs(steps) do
-                    if v == cur then nxt = steps[i % #steps + 1]; break end
-                    -- a hand-typed value that is not on the ladder steps up to
-                    -- the next one above it
-                    if v > cur then nxt = v; break end
-                end
-                p.settings.keep_read_chapters_days = nxt
-                p:saveSettings()
-                if tm then tm:updateItems() end
+            callback = function(tm) cycle("keep_read_chapters_days", { 0, 1, 3, 7, 14, 30 }, tm) end,
+        },
+        {
+            text_func = function()
+                local n = tonumber(p.settings.keep_newest_chapters) or 0
+                if n <= 0 then return _("Always keep the last chapters read: off") end
+                return T(_("Always keep the last %1 chapter(s) read in a series"), n)
             end,
+            help_text = _("However long ago they were read, the last few chapters you finished in a series stay on the device, so there is always something behind you to turn back into. Finishing another chapter releases the oldest one. Chapters waiting ahead of you from the read-ahead do not count against it, and one series cannot spend another's. The grace period bounds how long a finished chapter survives; this bounds how many."),
+            enabled_func = function() return p.settings.delete_read_on_advance ~= false end,
+            keep_menu_open = true,
+            callback = function(tm) cycle("keep_newest_chapters", { 0, 1, 2, 3, 5, 10 }, tm) end,
         },
     }
 end

@@ -1166,21 +1166,85 @@ function Sync:cleanupDelay()
     return math.floor(days * 86400)
 end
 
+--- The folder a downloaded chapter sits in which, with download_to_subfolder
+-- on (the default), is its series.
+local function folder_of(path)
+    return tostring(path or ""):match("^(.*)/[^/]+$") or ""
+end
+
+--- When one pending-cleanup entry was finished. Entries are { id, ts }; a
+-- bare number is accepted so the rule can be read against any timestamped set.
+local function ts_of(entry)
+    if type(entry) == "table" then return tonumber(entry.ts) end
+    return tonumber(entry)
+end
+
 --[[
-    What to do with one entry of the pending-cleanup list, given nothing but
-    numbers -- the whole retention rule in one place, and the one part of the
-    cleanup worth a test (tests/cleanup.lua).
+    Is this one of the `count` most recently finished chapters of its series --
+    the ones just behind where the reader is, and so the ones a turn-back or a
+    catch-up jump is most likely to want?
+
+    Ranked among the chapters awaiting cleanup, which is exactly the set of
+    chapters that have been read and are still on the device. Chapters waiting
+    ahead of the reader (read-ahead downloads) are not in it and so cannot eat
+    the budget, which is the whole point of counting the read ones.
+
+    Finish order, not chapter number: it needs no metadata and no filesystem,
+    and reading a series forwards makes the two the same order anyway. Per
+    folder, which with download_to_subfolder on (the default) is per series, so
+    one series cannot spend another's budget.
+
+    The invariant this gives: once a series has more than `count` read chapters
+    on the device, finishing another one releases the oldest. A series left
+    part-way keeps its last `count` chapters until the storage cap or a manual
+    delete takes them.
+--]]
+function Sync.isAmongNewest(path, entries, count)
+    count = tonumber(count) or 0
+    if count <= 0 or type(entries) ~= "table" then return false end
+    local mine = ts_of(entries[path])
+    if mine == nil then return false end
+    local dir = folder_of(path)
+    local newer = 0
+    for other, entry in pairs(entries) do
+        if other ~= path and folder_of(other) == dir then
+            local ts = ts_of(entry) or 0
+            -- Ties broken by path, so the kept set is stable and exactly
+            -- `count` big even when a batch is finished in the same second.
+            if ts > mine or (ts == mine and other > path) then
+                newer = newer + 1
+                if newer >= count then return false end
+            end
+        end
+    end
+    return true
+end
+
+--[[
+    What to do with one entry of the pending-cleanup list -- the whole retention
+    rule in one place, and the part of the cleanup worth a test
+    (tests/cleanup.lua).
+
+    Two reasons to keep a finished chapter, and either one is enough: it is
+    still inside its grace period, or it is one of the newest few in its series.
+    The first bounds how long a chapter survives, the second bounds how many.
+
+    `among_newest` may be a boolean or a function returning one. Working it out
+    means walking the pending list, so it is asked for last -- with a grace
+    period set, most entries never get that far.
 
     Returns:
       "touch"  the chapter is open again: restart its grace period
       "forget" the file is gone already; stop tracking it
-      "wait"   still inside its grace period; do not even ask the server
-      "ask"    the grace period is up: the server decides read -> gone
+      "wait"   a reason to keep it still stands; do not even ask the server
+      "ask"    nothing holds it now: the server decides read -> gone
 --]]
-function Sync.cleanupVerdict(age, delay, exists, is_open)
+function Sync.cleanupVerdict(age, delay, exists, is_open, among_newest)
     if is_open then return "touch" end
     if not exists then return "forget" end
     if (tonumber(age) or 0) < (tonumber(delay) or 0) then return "wait" end
+    if type(among_newest) == "function" then among_newest = among_newest() end
+    if among_newest then return "wait" end
     return "ask"
 end
 
@@ -1212,6 +1276,7 @@ function Sync:processCleanup()
     local lfs = require("libs/libkoreader-lfs")
     local open_path = self.plugin.ui and self.plugin.ui.document and self.plugin.ui.document.file
     local delay = self:cleanupDelay()
+    local keep_newest = tonumber(self.plugin.settings.keep_newest_chapters) or 0
     local now = os.time()
     local removed, changed = {}, false
     for path, entry in pairs(pend) do
@@ -1223,7 +1288,8 @@ function Sync:processCleanup()
             changed = true
         end
         local verdict = Sync.cleanupVerdict(now - (tonumber(entry.ts) or now), delay,
-            lfs.attributes(path, "mode") == "file", path == open_path)
+            lfs.attributes(path, "mode") == "file", path == open_path,
+            function() return Sync.isAmongNewest(path, pend, keep_newest) end)
         if verdict == "touch" then
             entry.ts = now
             changed = true

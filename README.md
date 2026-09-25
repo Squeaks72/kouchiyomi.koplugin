@@ -52,12 +52,14 @@ Davis), reworked for Uchiyomi's native API.
   backwards. Settings ▸ Reading turns it off.
 - **Read ahead & cleanup**: the next chapter(s) download quietly in the
   background after one opens; a finished chapter's file is removed once
-  Uchiyomi confirms it is read **and a grace period has passed** (7 days by
-  default, because the chapter you just read is the one you are most likely to
-  turn back into). Opening it again restarts the clock. Settings ▸ Reading sets
-  the period (none / 1 / 3 / 7 / 14 / 30 days) or turns the removal off
-  entirely; progress and bookmarks live on Uchiyomi either way, so a deleted
-  chapter is always one download away.
+  Uchiyomi confirms it is read and nothing is still holding it. Two things can
+  hold it, and either is enough — a **grace period** (7 days by default;
+  opening the chapter again restarts it) and **the last few chapters you read
+  in that series** (3 by default, released one at a time as you finish more).
+  The first bounds how long a read chapter survives, the second how many, so
+  the chapters just behind you are always there to turn back into. Settings ▸
+  Reading tunes both or turns the removal off entirely; progress and bookmarks
+  live on Uchiyomi either way, so a deleted chapter is one download away.
 - **Footer**: "⇅N" while changes wait to sync, "↓N" while downloads run.
 - **Series actions**: favourite, download next unread N, mark all read.
 - **Reads like manga**: chapters open with right-to-left page turning, so the

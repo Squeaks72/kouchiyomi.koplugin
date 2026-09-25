@@ -61,6 +61,11 @@ local DEFAULT_SETTINGS = {
     -- it, and a catch-up jump can land in it. It is kept this many days first
     -- (0 = straight away, the pre-0.7 behaviour).
     keep_read_chapters_days = 7,
+    -- ...and however long ago they were read, the last few chapters finished in
+    -- a series stay put. The grace period bounds how LONG a finished chapter
+    -- survives; this bounds how MANY, which is the half that keeps a series
+    -- you are working through from thinning out behind you (0 = off).
+    keep_newest_chapters = 3,
     footer_sync_indicator = true,
     -- rtl | ltr | auto | off. Manga reads right-to-left, so that is the default: the tap zone on the
     -- RIGHT turns FORWARD. "auto" follows the series' own readingDirection, which sounds better than it
@@ -364,9 +369,11 @@ function Plugin:diagnosticsText()
     for _ in pairs(self.settings.pending_cleanup or {}) do pc = pc + 1 end
     table.insert(lines, "Finished chapters awaiting cleanup: " .. pc)
     local keep = tonumber(self.settings.keep_read_chapters_days) or 0
+    local newest = tonumber(self.settings.keep_newest_chapters) or 0
     table.insert(lines, "Read ahead: " .. tostring(self.settings.read_ahead)
         .. "  Delete when read: " .. tostring(self.settings.delete_read_on_advance ~= false)
         .. (keep > 0 and (" after " .. keep .. "d") or " straight away")
+        .. (newest > 0 and ("  Always keep last read: " .. newest .. "/series") or "")
         .. "  Auto-advance: " .. tostring(self.settings.auto_advance ~= false))
     local text = table.concat(lines, "\n")
     logger.info("kouchiyomi diagnostics:\n" .. text)

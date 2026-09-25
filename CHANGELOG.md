@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — 2026-09-25
+- A second reason to keep a finished chapter, alongside the grace period: **the last 3 chapters you
+  read in a series** stay on the device however long ago you read them (Settings ▸ Reading ▸ "Always
+  keep the last N chapter(s) read in a series": off / 1 / 2 / 3 / 5 / 10). Either rule holding is
+  enough to keep a chapter, so the grace period bounds how *long* one survives and this bounds how
+  *many* -- a series you are working through never thins out behind you, and one you left months ago
+  still has its last few chapters when you come back.
+  - Finishing another chapter releases the oldest one, so a series settles at exactly N kept chapters.
+  - Ranked among the chapters awaiting cleanup -- the ones you have read and still have. Chapters
+    waiting *ahead* of you from the read-ahead are not in that set and cannot eat the budget, and one
+    series cannot spend another's (it counts per download folder).
+  - Set it to off for 0.7.0's behaviour, where the grace period is the only thing holding a chapter.
+- `tests/cleanup.lua` now covers both rules and how they combine, including the settle-at-N invariant.
+
 ## 0.7.0 — 2026-09-25
 - A finished chapter is no longer deleted the moment Uchiyomi confirms it read. It is now kept for
   **7 days** first (Settings ▸ Reading ▸ "Grace period before it goes": none / 1 / 3 / 7 / 14 / 30 days).
