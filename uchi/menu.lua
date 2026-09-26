@@ -284,6 +284,13 @@ function Menu:readingMenu()
             end,
         },
         {
+            text = _("Turn the screen for double-page spreads"),
+            help_text = _("A spread is scanned as one wide image and lands as two postage stamps on an upright screen. With this on, a page wider than it is tall turns the screen to landscape, and the next single page turns it back -- no need to reach for the device. Turning it by hand always wins: that orientation becomes the one a spread comes back to. Page mode only; a webtoon read as one long strip is left alone. Gestures can be bound to 'Uchiyomi: portrait / landscape' and 'Uchiyomi: rotate for wide pages on/off'."),
+            checked_func = function() return p.settings.auto_rotate_wide_pages ~= false end,
+            keep_menu_open = true,
+            callback = function() p.settings.auto_rotate_wide_pages = not (p.settings.auto_rotate_wide_pages ~= false); p:saveSettings() end,
+        },
+        {
             text = _("Delete a finished chapter once Uchiyomi has it marked read"),
             help_text = _("When you move on to the next chapter, the finished file is removed after the server confirms it is read. Progress and bookmarks stay on Uchiyomi, so the chapter can always be downloaded again."),
             checked_func = function() return p.settings.delete_read_on_advance ~= false end,

@@ -24,6 +24,7 @@ local Bookmarks = require("uchi/bookmarks")
 local Stream = require("uchi/stream")
 local SettingsMenu = require("uchi/menu")
 local Updater = require("uchi/updater")
+local Rotation = require("uchi/rotation")
 local i18n = require("uchi/i18n")
 
 local Plugin = WidgetContainer:extend{
@@ -84,6 +85,10 @@ local DEFAULT_SETTINGS = {
     chapter_page_crop = "leave",     -- auto | none | leave         (kopt_trim_page)
     chapter_dithering = "leave",     -- on | off | leave            (kopt_hw_dithering)
     chapter_ui_mirror = "leave",     -- match | off | leave         (invert_ui_layout)
+    -- A double-page spread is wider than it is tall and lands as two postage
+    -- stamps on a portrait screen. With this on, the page's own shape turns the
+    -- screen (and turns it back on the next single page) -- see uchi/rotation.
+    auto_rotate_wide_pages = true,
 
     sync_progress = true,
     sync_bookmarks = true,
@@ -298,6 +303,15 @@ function Plugin:registerActions()
     Dispatcher:registerAction("kouchiyomi_sync", {
         category = "none", event = "KouchiyomiSync", title = i18n._("Uchiyomi: sync this chapter"), reader = true,
     })
+    -- Bindable under Gestures / Profiles like any other action. KOReader's own
+    -- "Toggle orientation" does the same turn; this one also tells the
+    -- wide-page rotation to stop arguing with the hand that just turned it.
+    Dispatcher:registerAction("kouchiyomi_toggle_rotation", {
+        category = "none", event = "KouchiyomiToggleRotation", title = i18n._("Uchiyomi: portrait / landscape"), reader = true,
+    })
+    Dispatcher:registerAction("kouchiyomi_auto_rotate", {
+        category = "none", event = "KouchiyomiAutoRotate", title = i18n._("Uchiyomi: rotate for wide pages on/off"), reader = true,
+    })
 end
 
 function Plugin:onKouchiyomiBrowser()
@@ -310,6 +324,40 @@ function Plugin:onKouchiyomiSync()
         self.sync:pullProgress(self.ui, true)
         self.bookmarks:syncOpenDocument(self.ui, true)
     end
+    return true
+end
+
+--- Turn the screen the other way. Whatever the reader turns by hand becomes
+-- the orientation a spread comes back to, so this does not fight the next page.
+function Plugin:onKouchiyomiToggleRotation()
+    local now = Rotation.current()
+    if now == nil then return true end
+    -- Deliberately not ours: onSetRotationMode below sees a rotation it did not
+    -- ask for and stands the wide-page rotation down, as for any turn by hand.
+    self.rotation_set = nil
+    Rotation.apply(self.ui, Rotation.swap(now), false)
+    return true
+end
+
+--- Every rotation passes through here on its way to ReaderView. No return
+-- value: the event has further to go.
+function Plugin:onSetRotationMode(mode)
+    if not self.is_active then return end
+    pcall(Rotation.observe, self, mode)
+end
+
+function Plugin:onKouchiyomiAutoRotate()
+    local on = self.settings.auto_rotate_wide_pages == false
+    self.settings.auto_rotate_wide_pages = on
+    self:saveSettings()
+    if not on then
+        Rotation.restore(self)
+    elseif self.is_active and self.ui and self.ui.view and self.ui.view.state then
+        self.rotation_hold = nil
+        -- On now: the page already on screen gets the same look the next one would.
+        pcall(Rotation.forPage, self, self.ui.view.state.page)
+    end
+    self:notify(on and i18n._("Rotating for wide pages.") or i18n._("Not rotating for wide pages."), "info")
     return true
 end
 
@@ -354,6 +402,12 @@ function Plugin:diagnosticsText()
         local page = ui.view and ui.view.state and ui.view.state.page
         local total = ui.document.getPageCount and ui.document:getPageCount()
         table.insert(lines, "Page: " .. tostring(page) .. " / " .. tostring(total))
+        local aspect = page and Rotation.pageAspect(ui.document, page)
+        table.insert(lines, "Rotation: " .. tostring(Rotation.current())
+            .. "  this page w/h: " .. (aspect and string.format("%.2f", aspect) or "?")
+            .. (aspect and aspect >= Rotation.WIDE_PAGE_RATIO and " (wide)" or "")
+            .. "  turned for a spread from: " .. tostring(self.rotation_base or "no")
+            .. "  standing down at wide=" .. tostring(self.rotation_hold))
     else
         table.insert(lines, "")
         table.insert(lines, "No document open.")
@@ -562,6 +616,12 @@ function Plugin:onReaderReady()
         pcall(self.sync.processCleanup, self.sync)
     end
     self:_installFooterIndicator(ui)
+    -- The page this chapter opens on may itself be a spread, and PageUpdate is
+    -- not guaranteed to have fired for it by now.
+    UIManager:nextTick(function()
+        if not self.is_active then return end
+        pcall(Rotation.forPage, self, ui.view and ui.view.state and ui.view.state.page)
+    end)
     -- Read ahead once the first page is on screen: remember the next chapter
     -- (for when Wi-Fi is gone later) and fetch the next N in the background.
     UIManager:scheduleIn(4, function()
@@ -745,6 +805,9 @@ end
 
 function Plugin:onPageUpdate(page)
     if not self.current_book_id or type(page) ~= "number" then return end
+    -- Before the progress push, and inside this same event dispatch, so the
+    -- rotation's full refresh is the one this page turn was going to cost.
+    pcall(Rotation.forPage, self, page)
     local interval = tonumber(self.settings.push_interval) or 5
     if self.last_pushed_page and math.abs(page - self.last_pushed_page) < interval then return end
     self.last_pushed_page = page
@@ -752,6 +815,7 @@ function Plugin:onPageUpdate(page)
 end
 
 function Plugin:onCloseDocument()
+    pcall(Rotation.restore, self)
     self:_push()
     self:_removeFooterIndicator()
     if self.current_book_id and self.ui then

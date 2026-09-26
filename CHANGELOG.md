@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.0 — 2026-09-25
+- **Double-page spreads turn the screen themselves.** A spread is scanned as one wide image and lands as
+  two postage stamps on an upright screen; now a page wider than it is tall (w/h ≥ 1.2) turns the screen
+  to landscape as it arrives, and the next single page turns it back. No reaching for the device.
+  - Turning it by hand always wins. KOReader's own "Toggle orientation", the gear menu or a G-sensor all
+    pass through `SetRotationMode`, which the plugin watches: your orientation stands for as long as the
+    pages stay the shape they were when you turned it, so a run of spreads is left exactly as you put it
+    and the first single page after it hands control back.
+  - The turn happens inside the page-turn's own event, so it costs the one full refresh a rotation needs
+    rather than drawing the page twice.
+  - Closing a chapter on a spread puts the screen back first -- KOReader writes the rotation it closes in
+    into that chapter's settings, so otherwise the next chapter would open sideways.
+  - Page mode only: a webtoon read as one long strip has no page to be wide, and turning the screen
+    mid-scroll is only disruptive.
+  - Settings ▸ Reading ▸ "Turn the screen for double-page spreads" turns it off.
+- Two new gesture actions (Gestures / Profiles, or Dispatcher anywhere it is used):
+  **"Uchiyomi: portrait / landscape"** and **"Uchiyomi: rotate for wide pages on/off"**. The first is a
+  plain orientation toggle that also stands the automatic rotation down, so it does not undo you on the
+  next page. (KOReader's built-in "Toggle orientation" works too, and is watched the same way.)
+- Diagnostics gains the current rotation, the open page's width/height ratio and whether the automatic
+  rotation is standing down.
+- `tests/rotation.lua` covers the orientation arithmetic, the spread threshold and the stand-down rule;
+  like the other offline tests it needs neither KOReader nor a device.
+
 ## 0.8.0 — 2026-09-25
 - A second reason to keep a finished chapter, alongside the grace period: **the last 3 chapters you
   read in a series** stay on the device however long ago you read them (Settings ▸ Reading ▸ "Always

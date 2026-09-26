@@ -60,6 +60,14 @@ Davis), reworked for Uchiyomi's native API.
   the chapters just behind you are always there to turn back into. Settings ▸
   Reading tunes both or turns the removal off entirely; progress and bookmarks
   live on Uchiyomi either way, so a deleted chapter is one download away.
+- **Spreads turn the screen**: a double-page spread is one wide image, and on an
+  upright screen it lands as two postage stamps. A page wider than it is tall
+  turns the screen to landscape as it arrives; the next single page turns it
+  back. Turning the device by hand always wins — your orientation stands while
+  the pages stay that shape, so a run of spreads is left as you put it. Page
+  mode only; Settings ▸ Reading turns it off. Gestures: "Uchiyomi: portrait /
+  landscape" and "Uchiyomi: rotate for wide pages on/off" (KOReader's own
+  "Toggle orientation" is understood too).
 - **Footer**: "⇅N" while changes wait to sync, "↓N" while downloads run.
 - **Series actions**: favourite, download next unread N, mark all read.
 - **Reads like manga**: chapters open with right-to-left page turning, so the
