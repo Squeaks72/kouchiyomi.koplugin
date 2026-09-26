@@ -185,6 +185,17 @@ function Menu:readingMenu()
         p:saveSettings()
         if tm then tm:updateItems() end
     end
+    -- Not `pick` below: that one also reseeds uchi/sidecar's download-time
+    -- defaults, which this setting has nothing to do with.
+    local function rot_item(value, label)
+        return {
+            text = label,
+            checked_func = function() return (p.settings.spread_rotation or "follow") == value end,
+            radio = true,
+            keep_menu_open = true,
+            callback = function() p.settings.spread_rotation = value; p:saveSettings() end,
+        }
+    end
     local function mode_item(value, label)
         return {
             text = label,
@@ -288,7 +299,26 @@ function Menu:readingMenu()
             help_text = _("A spread is scanned as one wide image and lands as two postage stamps on an upright screen. With this on, a page wider than it is tall turns the screen to landscape, and the next single page turns it back -- no need to reach for the device. Turning it by hand always wins: that orientation becomes the one a spread comes back to. Page mode only; a webtoon read as one long strip is left alone. Gestures can be bound to 'Uchiyomi: portrait / landscape' and 'Uchiyomi: rotate for wide pages on/off'."),
             checked_func = function() return p.settings.auto_rotate_wide_pages ~= false end,
             keep_menu_open = true,
-            callback = function() p.settings.auto_rotate_wide_pages = not (p.settings.auto_rotate_wide_pages ~= false); p:saveSettings() end,
+            callback = function(tm)
+                p.settings.auto_rotate_wide_pages = not (p.settings.auto_rotate_wide_pages ~= false)
+                p:saveSettings()
+                if tm then tm:updateItems() end
+            end,
+        },
+        {
+            text_func = function()
+                local labels = { follow = _("as KOReader does"), cw = _("clockwise"), ccw = _("counter-clockwise") }
+                -- Unrecognised reads as "follow", the same as the rule itself does.
+                return T(_("Which way it turns: %1"), labels[p.settings.spread_rotation or "follow"] or labels.follow)
+            end,
+            help_text = _("Which of the two landscapes puts the page-turn buttons under your thumb depends on which edge you hold the device by, so this is yours to pick -- try both on the next spread. 'As KOReader does' keeps which way up the device is being held, the same rule its own Toggle orientation uses. Turning back to portrait always returns to the upright you came from, whichever direction is set."),
+            enabled_func = function() return p.settings.auto_rotate_wide_pages ~= false end,
+            sub_item_table = {
+                { text = _("Turning to landscape:"), enabled = false },
+                rot_item("follow", _("As KOReader does (keeps which way up)")),
+                rot_item("cw", _("Always clockwise")),
+                rot_item("ccw", _("Always counter-clockwise")),
+            },
         },
         {
             text = _("Delete a finished chapter once Uchiyomi has it marked read"),

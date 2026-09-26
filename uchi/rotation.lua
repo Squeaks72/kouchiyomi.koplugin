@@ -44,6 +44,45 @@ function Rotation.swap(mode)
     return (mode - 1) % 4
 end
 
+--[[
+    Which landscape to turn to.
+
+    `pref` is the spread_rotation setting:
+      "cw"     always clockwise
+      "ccw"    always counter-clockwise
+      "follow" (or anything else) KOReader's own rule -- the landscape that keeps
+               which way up the device is being held, which is what its built-in
+               "Toggle orientation" does
+
+    Which of the two puts a Kobo's page-turn buttons under your thumb depends on
+    which edge you hold, so this is a preference and not something to work out.
+--]]
+function Rotation.landscapeFor(mode, pref)
+    if pref == "cw" then return 1 end
+    if pref == "ccw" then return 3 end
+    mode = tonumber(mode) or 0
+    if Rotation.isPortrait(mode) then return Rotation.swap(mode) end
+    return mode
+end
+
+--[[
+    A toggle by hand: to landscape the preferred way, or back to portrait.
+
+    `from` is the portrait it was last turned away from, and the reason this is
+    not simply swap(): with a direction forced, the way back out of it is not the
+    way in. Turning upright portrait (0) to counter-clockwise landscape (3) and
+    then swapping would land on upside-down portrait (2) -- the screen the right
+    way round for nobody. Returns the mode to go to, and the portrait to
+    remember for the way back.
+--]]
+function Rotation.toggleTo(now, pref, from)
+    now = tonumber(now) or 0
+    if Rotation.isPortrait(now) then
+        return Rotation.landscapeFor(now, pref), now
+    end
+    return from or Rotation.swap(now), nil
+end
+
 --- Width/height of one page of an open document, or nil when the document
 -- cannot say (a reflowable one, a page that failed to load).
 function Rotation.pageAspect(doc, pageno)
@@ -71,16 +110,22 @@ end
     `base` the orientation to come back to, when the screen is currently turned
            because of a spread, else nil
 
+    `pref` is which landscape a spread turns to (see landscapeFor).
+
     Returns the mode to switch to (nil = stay put) and the base to remember from
     here on. Turning back is only ever to an orientation this took the screen
-    away from: a reader who turned the device themselves is left alone.
+    away from: a reader who turned the device themselves is left alone. Note the
+    way back is that remembered portrait and never derived, so forcing a
+    direction cannot strand the screen upside down.
 --]]
-function Rotation.decide(now, wide, base)
+function Rotation.decide(now, wide, base, pref)
     now = tonumber(now) or 0
     if wide == nil then return nil, base end
     if wide then
+        -- Already landscape, even the other one: an orientation that is already
+        -- readable is not worth wrenching around.
         if not Rotation.isPortrait(now) then return nil, base end
-        return Rotation.swap(now), now
+        return Rotation.landscapeFor(now, pref), now
     end
     if base == nil or base == now then return nil, nil end
     return base, nil
@@ -181,7 +226,7 @@ function Rotation.forPage(plugin, pageno)
     if Rotation.holds(plugin.rotation_hold, wide) then return end
     plugin.rotation_hold = nil
 
-    local want, base = Rotation.decide(now, wide, plugin.rotation_base)
+    local want, base = Rotation.decide(now, wide, plugin.rotation_base, plugin.settings.spread_rotation)
     plugin.rotation_base = base
     if want == nil then return end
     plugin.rotation_set = want
@@ -201,6 +246,7 @@ function Rotation.restore(plugin)
     plugin.rotation_base = nil
     plugin.rotation_set = nil
     plugin.rotation_hold = nil
+    plugin.rotation_manual_from = nil
     if base == nil then return end
     local ui = plugin.ui
     if not ui then return end

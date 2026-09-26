@@ -98,6 +98,52 @@ check("zero-sized pages say nothing",
       R.isWidePage({ getNativePageDimensions = function() return { w = 0, h = 0 } end }, 1) == nil)
 
 -- ---------------------------------------------------------------------------
+-- Which landscape, when the direction is a preference
+-- ---------------------------------------------------------------------------
+
+-- 14. Forced directions are exactly that, from either portrait.
+check("clockwise forced from upright", R.landscapeFor(UR, "cw") == CW)
+check("clockwise forced from upside down", R.landscapeFor(UD, "cw") == CW)
+check("counter-clockwise forced from upright", R.landscapeFor(UR, "ccw") == CCW)
+check("counter-clockwise forced from upside down", R.landscapeFor(UD, "ccw") == CCW)
+
+-- "follow" is KOReader's rule, and is what an unset or unknown value means, so
+-- an old settings file (or a typo in one) reads as the behaviour that shipped.
+check("follow keeps which way up", R.landscapeFor(UR, "follow") == CW)
+check("follow from the other portrait", R.landscapeFor(UD, "follow") == CCW)
+check("no preference means follow", R.landscapeFor(UD, nil) == CCW)
+check("nonsense means follow", R.landscapeFor(UD, "sideways") == CCW)
+check("already landscape is left as it is", R.landscapeFor(CCW, "follow") == CCW)
+
+-- 15. The rule the preference feeds into: a spread turns the preferred way...
+want, base = R.decide(UR, true, nil, "ccw")
+check("a spread turns counter-clockwise when asked", want == CCW, want)
+check("remembering the upright it came from", base == UR, base)
+
+-- ...and the way back is that remembered upright, never derived from the
+-- landscape. Deriving it would land a forced counter-clockwise on upside-down
+-- portrait, which is the screen the right way round for nobody.
+want, base = R.decide(CCW, false, UR, "ccw")
+check("and comes back to that upright, not upside down", want == UR, want)
+check("releasing the claim", base == nil, base)
+
+-- 16. A toggle by hand honours the preference too, and knows its own way back.
+want, base = R.toggleTo(UR, "ccw", nil)
+check("a hand toggle turns the preferred way", want == CCW, want)
+check("and remembers where from", base == UR, base)
+want, base = R.toggleTo(CCW, "ccw", UR)
+check("toggling back returns to that upright", want == UR, want)
+check("and forgets it", base == nil, base)
+-- Nothing remembered (the screen was already landscape when the chapter opened):
+-- KOReader's own swap is the only sensible answer left.
+want = R.toggleTo(CW, "ccw", nil)
+check("with nothing remembered it falls back to a swap", want == UR, want)
+check("from the other landscape too", R.toggleTo(CCW, "cw", nil) == UD)
+-- With no preference set, a toggle is exactly KOReader's toggle.
+check("follow toggles like KOReader out", R.toggleTo(UR, "follow", nil) == CW)
+check("follow toggles like KOReader back", R.toggleTo(CW, "follow", UR) == UR)
+
+-- ---------------------------------------------------------------------------
 -- Standing down when the reader turns the device themselves
 -- ---------------------------------------------------------------------------
 

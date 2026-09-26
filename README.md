@@ -64,7 +64,9 @@ Davis), reworked for Uchiyomi's native API.
   upright screen it lands as two postage stamps. A page wider than it is tall
   turns the screen to landscape as it arrives; the next single page turns it
   back. Turning the device by hand always wins — your orientation stands while
-  the pages stay that shape, so a run of spreads is left as you put it. Page
+  the pages stay that shape, so a run of spreads is left as you put it. Which
+  landscape it turns to is a setting (as KOReader does / always clockwise /
+  always counter-clockwise — whichever puts the buttons under your thumb). Page
   mode only; Settings ▸ Reading turns it off. Gestures: "Uchiyomi: portrait /
   landscape" and "Uchiyomi: rotate for wide pages on/off" (KOReader's own
   "Toggle orientation" is understood too).

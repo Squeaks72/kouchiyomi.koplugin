@@ -89,6 +89,11 @@ local DEFAULT_SETTINGS = {
     -- stamps on a portrait screen. With this on, the page's own shape turns the
     -- screen (and turns it back on the next single page) -- see uchi/rotation.
     auto_rotate_wide_pages = true,
+    -- Which landscape a spread turns to: "follow" is KOReader's own rule (the
+    -- one its built-in toggle uses, keeping which way up the device is held),
+    -- or force it. Which way puts a Kobo's buttons under your thumb depends on
+    -- the edge you hold, so there is nothing to work out -- it is a preference.
+    spread_rotation = "follow",      -- follow | cw | ccw
 
     sync_progress = true,
     sync_bookmarks = true,
@@ -332,10 +337,12 @@ end
 function Plugin:onKouchiyomiToggleRotation()
     local now = Rotation.current()
     if now == nil then return true end
+    local want, from = Rotation.toggleTo(now, self.settings.spread_rotation, self.rotation_manual_from)
+    self.rotation_manual_from = from
     -- Deliberately not ours: onSetRotationMode below sees a rotation it did not
     -- ask for and stands the wide-page rotation down, as for any turn by hand.
     self.rotation_set = nil
-    Rotation.apply(self.ui, Rotation.swap(now), false)
+    Rotation.apply(self.ui, want, false)
     return true
 end
 
@@ -407,7 +414,8 @@ function Plugin:diagnosticsText()
             .. "  this page w/h: " .. (aspect and string.format("%.2f", aspect) or "?")
             .. (aspect and aspect >= Rotation.WIDE_PAGE_RATIO and " (wide)" or "")
             .. "  turned for a spread from: " .. tostring(self.rotation_base or "no")
-            .. "  standing down at wide=" .. tostring(self.rotation_hold))
+            .. "  standing down at wide=" .. tostring(self.rotation_hold)
+            .. "  spread turns: " .. tostring(self.settings.spread_rotation or "follow"))
     else
         table.insert(lines, "")
         table.insert(lines, "No document open.")

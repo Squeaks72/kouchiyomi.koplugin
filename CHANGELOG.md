@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1 — 2026-09-26
+- Which way a spread turns the screen is now a setting: Settings ▸ Reading ▸ "Which way it turns" ▸
+  as KOReader does (default, unchanged) / always clockwise / always counter-clockwise. Which of the two
+  landscapes puts the page-turn buttons under your thumb depends on which edge you hold the device by,
+  so it is a preference rather than something the plugin can work out.
+  - "As KOReader does" keeps which way up the device is being held -- upright portrait turns clockwise,
+    upside-down portrait counter-clockwise -- the rule its own "Toggle orientation" uses. An unset or
+    unrecognised value reads as this, so nothing changes until you pick.
+  - The hand toggle ("Uchiyomi: portrait / landscape") follows the setting too.
+  - Turning back to portrait always returns to the upright it came from and is never derived from the
+    landscape: with a direction forced, deriving it would land on upside-down portrait.
+
 ## 0.9.0 — 2026-09-25
 - **Double-page spreads turn the screen themselves.** A spread is scanned as one wide image and lands as
   two postage stamps on an upright screen; now a page wider than it is tall (w/h ≥ 1.2) turns the screen
