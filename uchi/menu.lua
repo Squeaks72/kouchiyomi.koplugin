@@ -161,8 +161,18 @@ function Menu:serverMenu()
             end,
         },
         {
+            text = _("Also clear 18+ books from KOReader's statistics"),
+            help_text = _("KOReader keeps a row per document ever opened -- title, author, series and every reading session -- and it outlives the file, so 18+ chapters read before 0.10.0 are still listed under Statistics. The sweep below clears them: by file identity for what it deletes, and by series name for what an earlier version deleted long ago. The database is copied to statistics.sqlite3.kouchiyomi-bkp first, once, because this lowers real reading totals and streaks and cannot be undone."),
+            checked_func = function() return p.settings.purge_adult_stats ~= false end,
+            keep_menu_open = true,
+            callback = function()
+                p.settings.purge_adult_stats = not (p.settings.purge_adult_stats ~= false)
+                p:saveSettings()
+            end,
+        },
+        {
             text = _("Remove downloaded 18+ chapters now"),
-            help_text = _("Deletes the files, their sidecars, their KOReader history entries and the series folder they sat in. Progress and bookmarks live on Uchiyomi, so nothing is lost but the local copy. Runs by itself once after upgrading; this is for running it again."),
+            help_text = _("Deletes the files, their sidecars, their KOReader history entries and the series folder they sat in, and (unless turned off above) their rows in KOReader's statistics. Progress and bookmarks live on Uchiyomi, so nothing is lost but the local copy. Runs by itself once after upgrading; this is for running it again."),
             keep_menu_open = true,
             callback = function() p.sync:sweepAdultDownloads(true) end,
         },

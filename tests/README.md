@@ -2,7 +2,8 @@
 
 These need neither KOReader nor a server -- they run the previous-chapter
 search, the "where am I in this series?" lookup, the finished-chapter retention
-rule, the spread-rotation rules and the 18+ decision against stubs:
+rule, the spread-rotation rules, the 18+ decision and the statistics match
+against stubs:
 
 ```sh
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/prev_chapter.lua
@@ -10,6 +11,7 @@ cd /path/to/kouchiyomi.koplugin && lua5.1 tests/series_position.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/cleanup.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/rotation.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/adult.lua
+cd /path/to/kouchiyomi.koplugin && lua5.1 tests/stats.lua
 ```
 
 The rest run with KOReader's own LuaJIT from an extracted KOReader install (the

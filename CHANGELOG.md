@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.10.1 — 2026-09-30
+- The 18+ sweep now also clears **KOReader's reading statistics**. `statistics.sqlite3` keeps a row per
+  document ever opened -- title, author, series and every reading session -- and it outlives the file, so
+  chapters read before 0.10.0 were still listed under Statistics ▸ Top books.
+  - Recognised two ways, because the file is usually already gone: by **file identity** (`util.partialMD5`,
+    taken while the file still exists, which is what the statistics plugin filed it under) and by **series
+    name** against the series of the server's 18+ libraries -- the only one that reaches chapters an
+    earlier version's cleanup deleted long ago.
+  - Matching is done in Lua, not SQL, so a series title containing `%` or `_` stays a title instead of
+    becoming a wildcard that would empty the table. A series of "N/A" (the statistics plugin's "no series")
+    matches nothing.
+  - The database is **copied to `statistics.sqlite3.kouchiyomi-bkp` first**, once, before anything is
+    deleted -- this lowers real reading totals and streaks and cannot be undone.
+  - A chapter with no series recorded whose file is already gone cannot be recognised by either route and
+    is left alone.
+  - Settings ▸ Server ▸ "Also clear 18+ books from KOReader's statistics" turns it off.
+- Checked against SimpleUI (`doctorhetfield-cmd/simpleui.koplugin`), since its home screen is the one this
+  is all for: its Currently reading / Recent / Cover deck read `ReadHistory` and count only entries whose
+  file still exists, its library modules walk the filesystem, and its cover cache is in memory only -- so
+  streaming and the sweep already covered it. Its statistics modules read this database for durations and
+  page counts only, never titles, which is why the rows above were a statistics-screen leak rather than a
+  home-screen one.
+- `tests/stats.lua` covers the match, including the wildcard and "N/A" cases that would delete the wrong rows.
+
 ## 0.10.0 — 2026-09-30
 - **18+ series leave no trace on the device.** Two halves, because no single change covers it:
   - **They are streamed, never downloaded.** A downloaded chapter is a file, and a file is what turns up

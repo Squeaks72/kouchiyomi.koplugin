@@ -1785,6 +1785,10 @@ function Sync:sweepAdultDownloads(is_manual)
 
     local open_path = self.plugin.ui and self.plugin.ui.document and self.plugin.ui.document.file
     local removed, folders, unresolved = 0, {}, 0
+    -- The md5 KOReader's statistics filed each file under, taken while the file
+    -- still exists -- after the delete it cannot be computed (uchi/stats).
+    local Stats = require("uchi/stats")
+    local md5s = {}
     for _i, info in ipairs(self:getDownloadedBookInfos()) do
         if info.path ~= open_path then
             local verdict
@@ -1798,6 +1802,8 @@ function Sync:sweepAdultDownloads(is_manual)
             if verdict == nil then
                 unresolved = unresolved + 1
             elseif verdict == true then
+                local md5 = Stats.md5(info.path)
+                if md5 then md5s[md5] = true end
                 self:deleteDownloadedFile(info.path, true)
                 removed = removed + 1
                 local dir = info.path:match("^(.*)/[^/]+$")
@@ -1809,16 +1815,39 @@ function Sync:sweepAdultDownloads(is_manual)
     if removed > 0 then
         logger.info("kouchiyomi: removed", removed, "downloaded 18+ chapter(s)")
     end
+
+    -- KOReader's own statistics outlive the file, so they are cleared from the
+    -- same sweep: by md5 for what was just deleted, by series title for what an
+    -- earlier version's cleanup deleted long ago.
+    local purged = 0
+    if self.plugin.settings.purge_adult_stats ~= false then
+        local titles = {}
+        local ids = {}
+        for id in pairs(Adult.libraryIds(self.plugin)) do table.insert(ids, id) end
+        if #ids > 0 then
+            local ok, got = pcall(self.plugin.api.series_titles_in, self.plugin.api, ids)
+            if ok and type(got) == "table" then titles = got end
+        end
+        if next(titles) or next(md5s) then
+            local n, err = Stats.purge(titles, md5s)
+            purged = n or 0
+            if err then logger.warn("kouchiyomi: statistics not purged:", err) end
+        end
+    end
+
     if is_manual then
-        if removed > 0 then
-            self.plugin:notify(T(_("Removed %1 downloaded 18+ chapter(s). Progress stays on Uchiyomi."), removed), "info")
+        local parts = {}
+        if removed > 0 then table.insert(parts, T(_("%1 chapter(s) removed"), removed)) end
+        if purged > 0 then table.insert(parts, T(_("%1 book(s) cleared from statistics"), purged)) end
+        if #parts > 0 then
+            self.plugin:notify(table.concat(parts, ", ") .. ". " .. _("Progress stays on Uchiyomi."), "info")
         elseif unresolved > 0 then
             self.plugin:notify(T(_("Nothing to remove; %1 chapter(s) could not be identified."), unresolved), "info")
         else
-            self.plugin:notify(_("No downloaded 18+ chapters."), "info")
+            self.plugin:notify(_("Nothing 18+ left on this device."), "info")
         end
     end
-    return removed, unresolved
+    return removed, unresolved, purged
 end
 
 --- The once-ever version of the sweep, for upgrading from a version that

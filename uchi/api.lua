@@ -310,6 +310,40 @@ function UchiyomiAPI:search_series(query, page, size, condition, sort, reveal)
     return self:request(path, "POST", body)
 end
 
+--[[
+    Every series title in the given libraries, asking to be shown 18+ whatever
+    the "let me open 18+ libraries" setting says.
+
+    Not a listing anyone sees, and the one place that override is right: it
+    exists so the statistics purge can recognise its own rows by series name,
+    and a reader who has hidden 18+ from their browser has not asked to keep
+    18+ rows in their reading statistics.
+--]]
+function UchiyomiAPI:series_titles_in(library_ids)
+    local titles = {}
+    for _i, lib_id in ipairs(library_ids or {}) do
+        local page = 0
+        while true do
+            local body = {
+                page = page, size = 100, sort = "title,asc",
+                condition = { libraryId = { operator = "is", value = lib_id } },
+            }
+            local res = self:request("/api/series/search?adult=1", "POST", body)
+            if type(res) ~= "table" then break end
+            local content = res.content or res
+            if type(content) ~= "table" or #content == 0 then break end
+            for _j, series in ipairs(content) do
+                local name = series.name or (series.metadata and series.metadata.title)
+                if type(name) == "string" and name ~= "" then titles[name] = true end
+            end
+            if res.last == nil or res.last == true then break end
+            page = page + 1
+            if page > 200 then break end
+        end
+    end
+    return titles
+end
+
 function UchiyomiAPI:get_series(series_id)
     return self:request("/api/series/" .. escape(series_id))
 end

@@ -77,9 +77,10 @@ Davis), reworked for Uchiyomi's native API.
   the plugin stops asking the server to include them. Opening a library marked
   18+ from the Libraries list still works: Uchiyomi filters its *listings*, not
   what you ask for by name. Chapters an older version downloaded are swept once
-  on upgrade. Settings ▸ Server turns it off. (An admin can also mark genres as
-  adult server-side; that list is not exposed by the API, so only libraries and
-  per-series age ratings are detected.)
+  on upgrade, along with their rows in KOReader's reading statistics (the
+  database is backed up first). Settings ▸ Server turns it off. (An admin can
+  also mark genres as adult server-side; that list is not exposed by the API, so
+  only libraries and per-series age ratings are detected.)
 - **Footer**: "⇅N" while changes wait to sync, "↓N" while downloads run.
 - **Series actions**: favourite, download next unread N, mark all read.
 - **Reads like manga**: chapters open with right-to-left page turning, so the

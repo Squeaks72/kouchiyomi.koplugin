@@ -64,6 +64,10 @@ local DEFAULT_SETTINGS = {
     adult_libraries_at = 0,
     adult_series_cache = {},         -- series id -> true/false, so it is known offline
     adult_sweep_done = false,        -- the one-off removal of 18+ chapters downloaded before 0.10.0
+    -- KOReader's reading statistics keep a row per document ever opened, with
+    -- its title and series, and outlive the file. Cleared by the same sweep;
+    -- the database is copied to statistics.sqlite3.kouchiyomi-bkp first, once.
+    purge_adult_stats = true,
 
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
