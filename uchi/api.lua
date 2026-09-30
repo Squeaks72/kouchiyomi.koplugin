@@ -130,6 +130,21 @@ function UchiyomiAPI:get_headers(accept)
 end
 
 -- Append ?adult=1 (or &adult=1) when the user opted in to 18+ libraries.
+--[[
+    Ask to be shown 18+ on this request.
+
+    Only for a listing the reader has deliberately gone looking in -- the series
+    of a library that is itself 18+. Uchiyomi's `browsable()` hides 18+ from
+    every listing that does not carry this, and its `visible()` (by-id lookups,
+    pages, the chapter list, next/previous, progress) never filters at all, so a
+    chapter opened by id reads normally whether or not this was ever sent. That
+    is the whole of the plugin's 18+ hiding: it does not ask, so the home rails,
+    updates, favourites, history and bookmarks come back without them.
+
+    Carried as a query parameter because that is what the server reads (a header
+    would collide with its service worker's URL-keyed cache -- see
+    `hideAdultLibraries` in bff/src/lib/visibility.ts).
+--]]
 function UchiyomiAPI:withAdult(path)
     if not self.show_adult then return path end
     if path:find("%?") then return path .. "&adult=1" end
@@ -275,7 +290,7 @@ end
 -- ---------------------------------------------------------------------------
 
 function UchiyomiAPI:get_libraries()
-    return self:request(self:withAdult("/api/libraries"))
+    return self:request("/api/libraries")
 end
 
 --- Paged series search.
@@ -283,22 +298,26 @@ end
 --   { libraryId = { operator = "is", value = "lib" } }
 --   { readStatus = { operator = "is", value = "IN_PROGRESS" } }
 -- sort is "field,dir" with field in updated|added|title|author|unread|favorites|random.
-function UchiyomiAPI:search_series(query, page, size, condition, sort)
+--- `reveal` asks for 18+ to be included, and is only ever true for a listing
+-- the reader went looking in (the series of a library flagged 18+). Plain
+-- search does not set it, so a title never turns up unasked.
+function UchiyomiAPI:search_series(query, page, size, condition, sort, reveal)
     local body = { page = page or 0, size = size or 40 }
     if query and query ~= "" then body.query = query end
     if condition then body.condition = condition end
     if sort then body.sort = sort end
-    return self:request(self:withAdult("/api/series/search"), "POST", body)
+    local path = reveal and self:withAdult("/api/series/search") or "/api/series/search"
+    return self:request(path, "POST", body)
 end
 
 function UchiyomiAPI:get_series(series_id)
-    return self:request(self:withAdult("/api/series/" .. escape(series_id)))
+    return self:request("/api/series/" .. escape(series_id))
 end
 
 --- Chapters of a series in reading order, paged. Each book carries readProgress.
 function UchiyomiAPI:get_series_books(series_id, page, size)
     local path = "/api/series/" .. escape(series_id) .. "/books?page=" .. tostring(page or 0) .. "&size=" .. tostring(size or 40)
-    return self:request(self:withAdult(path))
+    return self:request(path)
 end
 
 --- Every chapter of a series (loops server pages). Returns a plain array.
@@ -318,16 +337,16 @@ function UchiyomiAPI:get_all_series_books(series_id)
 end
 
 function UchiyomiAPI:get_book(book_id)
-    return self:request(self:withAdult("/api/books/" .. escape(book_id)))
+    return self:request("/api/books/" .. escape(book_id))
 end
 
 function UchiyomiAPI:get_book_pages(book_id)
-    return self:request(self:withAdult("/api/books/" .. escape(book_id) .. "/pages"))
+    return self:request("/api/books/" .. escape(book_id) .. "/pages")
 end
 
 --- The chapter after this one, or nil (404) when it is the last.
 function UchiyomiAPI:get_next_book(book_id)
-    local res, err, code = self:request(self:withAdult("/api/books/" .. escape(book_id) .. "/next"))
+    local res, err, code = self:request("/api/books/" .. escape(book_id) .. "/next")
     if not res then return nil, err, code end
     if type(res) == "table" and res.id then return res end
     if type(res) == "table" and type(res.next) == "table" then return res.next end
@@ -505,23 +524,23 @@ function UchiyomiAPI:put_progress(book_id, page, completed, silent)
 end
 
 function UchiyomiAPI:get_history(limit)
-    return self:request(self:withAdult("/api/history?limit=" .. tostring(limit or 50)))
+    return self:request("/api/history?limit=" .. tostring(limit or 50))
 end
 
 --- Favourited series with unseen new chapters: { content = { { series=, newCount=, latestAt= } } }
 function UchiyomiAPI:get_updates()
-    return self:request(self:withAdult("/api/updates"))
+    return self:request("/api/updates")
 end
 
 --- The home screen: { onDeck = { book... }, updated = { series... }, new = { series... } }.
 -- onDeck is Uchiyomi's "Keep reading" rail: per recently read series, the
 -- chapter you are part-way through or, if you finished it, the next unread one.
 function UchiyomiAPI:get_home()
-    return self:request(self:withAdult("/api/home"))
+    return self:request("/api/home")
 end
 
 function UchiyomiAPI:get_favorites()
-    return self:request(self:withAdult("/api/favorites"))
+    return self:request("/api/favorites")
 end
 
 function UchiyomiAPI:add_favorite(series_id)
@@ -535,7 +554,7 @@ end
 --- All of the caller's page bookmarks:
 -- { content = { { book_id=, series_id=, page=, note=, created_at=, book_title=, number=, series_title= } } }
 function UchiyomiAPI:get_bookmarks()
-    return self:request(self:withAdult("/api/bookmarks"))
+    return self:request("/api/bookmarks")
 end
 
 function UchiyomiAPI:add_bookmark(book_id, page)

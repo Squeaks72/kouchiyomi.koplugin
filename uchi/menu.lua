@@ -140,7 +140,8 @@ function Menu:serverMenu()
             callback = function(tm) self:promptInput(_("Username"), "username", false, tm) end,
         },
         {
-            text = _("Show 18+ libraries"),
+            text = _("Let me open 18+ libraries"),
+            help_text = _("18+ series are never listed on the home screen, in updates, favourites, history, bookmarks or a plain search -- the plugin simply does not ask the server to include them. This is about the one place it does ask: opening a library marked 18+ from the Libraries list. With it off, those libraries list nothing at all."),
             checked_func = function() return p.settings.show_adult == true end,
             keep_menu_open = true,
             callback = function()
@@ -148,6 +149,22 @@ function Menu:serverMenu()
                 p:saveSettings()
                 p:initAPI()
             end,
+        },
+        {
+            text = _("Stream 18+ chapters, never download them"),
+            help_text = _("A downloaded chapter is a file, and a file turns up in the file manager, the cover browser, KOReader's history and 'open last book on startup'. Streaming writes nothing to the device, so there is nothing to turn up -- at the cost of what a document gives a chapter: bookmarks, panel zoom, the seeded view mode and page turning, and turning the screen for spreads. Progress still syncs. Reading ahead is skipped for these chapters."),
+            checked_func = function() return p.settings.stream_adult_chapters ~= false end,
+            keep_menu_open = true,
+            callback = function()
+                p.settings.stream_adult_chapters = not (p.settings.stream_adult_chapters ~= false)
+                p:saveSettings()
+            end,
+        },
+        {
+            text = _("Remove downloaded 18+ chapters now"),
+            help_text = _("Deletes the files, their sidecars, their KOReader history entries and the series folder they sat in. Progress and bookmarks live on Uchiyomi, so nothing is lost but the local copy. Runs by itself once after upgrading; this is for running it again."),
+            keep_menu_open = true,
+            callback = function() p.sync:sweepAdultDownloads(true) end,
         },
         {
             text = _("Test connection"),

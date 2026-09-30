@@ -524,7 +524,10 @@ function UchiBrowser:showSeriesInLibrary(lib)
     self:_loadCatalog{
         title = lib.name or lib.id,
         fetch_func = function(page, size)
-            return self.plugin.api:search_series(nil, page, size, { libraryId = { operator = "is", value = lib.id } }, "title,asc")
+            -- The one listing that asks to be shown 18+: the reader has opened a
+            -- library marked 18+, which is as deliberate as going looking gets.
+            return self.plugin.api:search_series(nil, page, size,
+                { libraryId = { operator = "is", value = lib.id } }, "title,asc", lib.adult == true)
         end,
         item_builder = function(s) return series_item(self, s) end,
         cover_type = "series",
@@ -919,6 +922,7 @@ end
 
 function UchiBrowser:_downloadBookList(books)
     local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
     local to_download = {}
     for _i, b in ipairs(books or {}) do
         if not self.plugin.sync:isBookDownloaded(b) then table.insert(to_download, b) end
@@ -929,8 +933,12 @@ function UchiBrowser:_downloadBookList(books)
     end
     local NetworkMgr = require("ui/network/manager")
     NetworkMgr:runWhenOnline(function()
-        self.plugin.sync:downloadBooksSeq(to_download, 1, function()
-            self.plugin:notify(_("Downloads finished."), "info")
+        self.plugin.sync:downloadBooksSeq(to_download, 1, function(skipped)
+            if (tonumber(skipped) or 0) > 0 then
+                self.plugin:notify(T(_("Downloads finished; %1 skipped (18+ chapters are streamed)."), skipped), "info")
+            else
+                self.plugin:notify(_("Downloads finished."), "info")
+            end
             self:updateItems()
         end)
     end)

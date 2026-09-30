@@ -49,7 +49,21 @@ local DEFAULT_SETTINGS = {
     username = "",
     api_token = "",
     opds_token = "",
+    -- May 18+ libraries be listed AT ALL when one is opened deliberately. It is
+    -- no longer "show 18+ everywhere": the plugin stops asking to be shown 18+
+    -- on every listing (home rails, updates, favourites, history, bookmarks,
+    -- plain search), which Uchiyomi's `browsable()` then keeps out of them.
     show_adult = false,
+    -- 18+ chapters are streamed and never written to disk: a file is what turns
+    -- up in the file manager, the cover browser, KOReader's history and "open
+    -- last book on startup", so not having one is the only guarantee that does
+    -- not rely on a filter. Costs the reader features a document has (bookmarks,
+    -- panel zoom, the seeded view mode, spread rotation) for those chapters.
+    stream_adult_chapters = true,
+    adult_libraries = {},            -- library id -> true, from /api/libraries
+    adult_libraries_at = 0,
+    adult_series_cache = {},         -- series id -> true/false, so it is known offline
+    adult_sweep_done = false,        -- the one-off removal of 18+ chapters downloaded before 0.10.0
 
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
@@ -150,6 +164,15 @@ function Plugin:init()
     self:registerActions()
     local NetworkMgr = require("ui/network/manager")
     if NetworkMgr:isOnline() then self.updater:maybeAutoCheck() end
+    -- Once ever, and only when the server can say which libraries are 18+:
+    -- clear out chapters a version before 0.10.0 downloaded. Off the critical
+    -- path of opening a document, and its own flag makes every later start a
+    -- single table lookup.
+    if not self.settings.adult_sweep_done then
+        UIManager:scheduleIn(8, function()
+            if NetworkMgr:isOnline() then pcall(self.sync.sweepAdultDownloadsOnce, self.sync) end
+        end)
+    end
     logger.info("kouchiyomi: initialised")
 end
 
@@ -846,6 +869,7 @@ function Plugin:onNetworkConnected()
     if self.updater then self.updater:maybeAutoCheck() end
     if not self.api then return end
     UIManager:scheduleIn(2, function()
+        if not self.settings.adult_sweep_done then pcall(self.sync.sweepAdultDownloadsOnce, self.sync) end
         if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end
         self.bookmarks:flushOffline()
         if self.is_active and self.current_book_id and self.ui and self.ui.document then

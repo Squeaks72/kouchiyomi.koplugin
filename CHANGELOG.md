@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.10.0 — 2026-09-30
+- **18+ series leave no trace on the device.** Two halves, because no single change covers it:
+  - **They are streamed, never downloaded.** A downloaded chapter is a file, and a file is what turns up
+    in the file manager, the cover browser, KOReader's history and "open last book on startup". Nothing
+    is written, so there is nothing to turn up. The gate sits on `Sync:downloadBook` and
+    `startBackgroundDownload` rather than on the call sites, so it holds for tapping a chapter, the
+    end-of-chapter advance, a catch-up jump, turning back a chapter, "download this + next N" and the
+    read-ahead alike. Streaming costs those chapters what a document gives one — bookmarks, panel zoom,
+    the seeded view mode and page turning, spread rotation — and progress still syncs.
+  - **They are no longer listed.** The plugin stops asking the server to include 18+ on every listing, so
+    the home rails, updates, favourites, history, bookmarks and plain search come back without them.
+    Uchiyomi's own `browsable()` does the hiding, while `visible()` (by-id lookups, pages, the chapter
+    list, next/previous, progress) never filters — so a series opened deliberately still reads normally.
+    The one listing that still asks is opening a library marked 18+ from the Libraries list.
+  - Chapters downloaded by an earlier version are removed once, the first time the server can be reached:
+    files, sidecars, KOReader history entries and the series folder they sat in. Progress and bookmarks
+    live on Uchiyomi, so only the local copy goes. Settings ▸ Server ▸ "Remove downloaded 18+ chapters
+    now" runs it again.
+  - "Show 18+ libraries" is now "Let me open 18+ libraries" — it was all-or-nothing across the whole
+    browser, and it is now only about that one deliberate listing.
+  - What is not covered: an admin can also name *genres* as adult on the server, and that list is not
+    exposed by any endpoint, so a series whose only claim to being 18+ is such a genre is not caught.
+    Libraries and per-series age ratings both are.
+  - Settings ▸ Server ▸ "Stream 18+ chapters, never download them" turns the whole thing off.
+- Fixed: **reading ahead ignored stream mode.** Choosing to stream still had the next chapters
+  downloaded in the background, which both defeated the setting and would have leaked 18+ chapters
+  straight past the gate above. The next chapter is still remembered (it costs nothing and is what makes
+  the end-of-chapter prompt work offline); only the fetching stops.
+- `tests/adult.lua` covers the 18+ decision, including the half-known cases that matter: a library list
+  that could not be fetched, a series seen for the first time, and a device with no network.
+
 ## 0.9.1 — 2026-09-26
 - Which way a spread turns the screen is now a setting: Settings ▸ Reading ▸ "Which way it turns" ▸
   as KOReader does (default, unchanged) / always clockwise / always counter-clockwise. Which of the two

@@ -11,6 +11,7 @@
 local logger = require("logger")
 local UIManager = require("ui/uimanager")
 local Sidecar = require("uchi/sidecar")
+local Adult = require("uchi/adult")
 local Labels = require("uchi/labels")
 local ChapterEnd = require("uchi/chapter_end")
 local FFIUtil = require("ffi/util")
@@ -902,6 +903,27 @@ function Sync:enforceDownloadCap(protect_path, quiet)
 end
 
 --- Download one chapter; calls on_success(path) / on_failure(err) on the next tick.
+--[[
+    Is this chapter one that must not be written to disk?
+
+    18+ chapters are streamed instead of downloaded, and this is the gate that
+    makes it true of EVERY path rather than of the ones anybody remembered:
+    tapping a chapter, the end-of-chapter advance, the read-ahead, a catch-up
+    jump, turning back into the previous chapter, "download this + next N".
+    A file is the thing that shows up in the file manager, the cover browser,
+    KOReader's history and "open last book on startup", so not having one is the
+    only guarantee that does not depend on a filter being remembered.
+
+    Unknown counts as "not 18+": see Adult.isBook -- the alternative is refusing
+    every download the moment the server cannot be reached, and a chapter cannot
+    be downloaded without the server anyway.
+--]]
+function Sync:mustStream(book, series)
+    if self.plugin.settings.stream_adult_chapters == false then return false end
+    local ok, verdict = pcall(Adult.isBook, self.plugin, book, series)
+    return ok and verdict == true
+end
+
 function Sync:downloadBook(book, series_title, on_success, on_failure, series)
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
@@ -909,6 +931,14 @@ function Sync:downloadBook(book, series_title, on_success, on_failure, series)
     if not series and self.plugin.api and book.seriesId then
         local s = self.plugin.api:get_series(book.seriesId)
         if type(s) == "table" then series = s; book.__series = s end
+    end
+    -- 18+: stream it instead, and tell the caller nothing landed, so on_success
+    -- (which would open a file that was never written) does not run.
+    if self:mustStream(book, series) then
+        self.plugin:notify(_("18+ chapters are streamed, never downloaded."), "info")
+        self.plugin.stream:open(book)
+        if on_failure then on_failure("18+ chapters are streamed") end
+        return
     end
     series_title = series_title or book.seriesTitle or (series and (series.name or (series.metadata and series.metadata.title)))
     if not self.plugin.api then
@@ -1021,6 +1051,8 @@ end
 -- a foreground download. Returns true when a job is running for the book.
 function Sync:startBackgroundDownload(book, series_title, series)
     if not self.plugin.api or type(book) ~= "table" or not book.id then return false end
+    -- Nothing to stream to in the background, so 18+ simply does not read ahead.
+    if self:mustStream(book, series) then return false end
     local key = tostring(book.id)
     if Sync.jobs[key] then return true end
     series_title = series_title or book.seriesTitle or (series and ((series.metadata and series.metadata.title) or series.name))
@@ -1099,12 +1131,17 @@ end
 function Sync:readAhead(book_id, depth)
     depth = tonumber(depth) or 0
     if not self.plugin.api or not book_id then return end
+    -- Streaming means "do not put chapters on this device", and reading ahead
+    -- did it anyway: the next chapters were downloaded whatever the open mode
+    -- said. Remembering the next chapter is still worth doing offline, so only
+    -- the fetching stops.
+    local fetch = (self.plugin.settings.open_mode or "download") ~= "stream"
     local cur = book_id
     for i = 1, math.max(1, depth) do
         local nb = self.plugin.api:get_next_book(cur)
         if type(nb) ~= "table" or not nb.id then break end
         if i == 1 then self:cacheNextChapter(book_id, nb) end
-        if depth >= i and not self:isBookDownloaded(nb) and not self:isDownloading(nb.id) then
+        if fetch and depth >= i and not self:isBookDownloaded(nb) and not self:isDownloading(nb.id) then
             self:startBackgroundDownload(nb, nb.seriesTitle, nil)
         end
         cur = nb.id
@@ -1142,9 +1179,15 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Remove a downloaded chapter and everything the plugin knows about it.
-function Sync:deleteDownloadedFile(path)
+--- `purge_history` also takes the chapter out of KOReader's own history, which
+-- is its own list of titles and outlives the file. Only wanted where the point
+-- is that no trace is left (18+); an ordinary cleanup leaves history alone.
+function Sync:deleteDownloadedFile(path, purge_history)
     os.remove(path)
     self:purgeSidecar(path)
+    if purge_history then
+        pcall(function() require("readhistory"):removeItemByPath(path) end)
+    end
     self.plugin.settings.matched_books_cache[path] = nil
     if self.plugin.settings.downloaded_books then self.plugin.settings.downloaded_books[path] = nil end
     UIManager:nextTick(function()
@@ -1317,15 +1360,22 @@ function Sync:processCleanup()
     end
 end
 
-function Sync:downloadBooksSeq(books, index, on_done)
+--- Download a run of chapters one after another. `skipped` counts the 18+ ones
+-- passed over: they are skipped rather than streamed, because streaming a batch
+-- would mean N viewers opening in a row, and nobody asked to read them now.
+function Sync:downloadBooksSeq(books, index, on_done, skipped)
     index = index or 1
+    skipped = skipped or 0
     if index > #books then
-        if on_done then on_done() end
+        if on_done then on_done(skipped) end
         return
     end
     local book = books[index]
     if books[index + 1] then self:cacheNextChapter(book.id, books[index + 1]) end
-    local step = function() self:downloadBooksSeq(books, index + 1, on_done) end
+    if self:mustStream(book) then
+        return self:downloadBooksSeq(books, index + 1, on_done, skipped + 1)
+    end
+    local step = function() self:downloadBooksSeq(books, index + 1, on_done, skipped) end
     self:downloadBook(book, book.seriesTitle, step, step)
 end
 
@@ -1670,6 +1720,119 @@ function Sync:openPreviousChapter(ui)
         self:downloadBook(prev, prev.seriesTitle, open_at_end)
     end
     return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Leaving no trace of 18+ chapters
+-- ---------------------------------------------------------------------------
+
+--- The series folder a chapter sat in, once it is empty: an 18+ series' NAME is
+-- as much of a leak as its chapters, and the folder keeps the cover the plugin
+-- cached beside them.
+function Sync:removeEmptySeriesFolder(dir)
+    if not dir or dir == "" then return false end
+    local download_dir = self.plugin:getDownloadDir()
+    -- Never the download root itself, and nothing outside it.
+    if not download_dir or dir == download_dir or not dir:find(download_dir, 1, true) then return false end
+    local lfs = require("libs/libkoreader-lfs")
+    if lfs.attributes(dir, "mode") ~= "directory" then return false end
+    -- The cover the plugin cached beside the chapters is the only thing it may
+    -- clear up itself. Anything else still in there -- a chapter, a leftover
+    -- sidecar folder, something the reader put there -- and the folder stays.
+    local covers = {}
+    local ok, iter, dir_obj = pcall(lfs.dir, dir)
+    if not ok or not iter then return false end
+    for name in iter, dir_obj do
+        if name ~= "." and name ~= ".." then
+            if name:match("^%.cover%.?") then
+                table.insert(covers, dir .. "/" .. name)
+            else
+                return false
+            end
+        end
+    end
+    for _i, cover in ipairs(covers) do os.remove(cover) end
+    return lfs.rmdir(dir) and true or false
+end
+
+--[[
+    Delete every downloaded chapter that belongs to an 18+ series.
+
+    From 0.10.0 on, an 18+ chapter is streamed and never reaches the device, so
+    this is about what earlier versions left behind -- and it runs once, the
+    first time the server can be reached, rather than on every start.
+
+    Needs the server: which libraries are 18+ is its answer, and a series the
+    plugin has never looked at has no remembered one. Nothing is deleted on a
+    guess, so a series that cannot be resolved is left alone and picked up on a
+    later run.
+--]]
+function Sync:sweepAdultDownloads(is_manual)
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    if not self.plugin.api then
+        if is_manual then self.plugin:notify(_("Uchiyomi is not configured."), "error") end
+        return 0
+    end
+    local NetworkMgr = require("ui/network/manager")
+    if not NetworkMgr:isOnline() then
+        if is_manual then self.plugin:notify(_("Offline: cannot tell which series are 18+ right now."), "error") end
+        return 0
+    end
+    -- Refreshed rather than trusted: this is the one job whose whole output
+    -- depends on the answer being current.
+    pcall(Adult.libraryIds, self.plugin, true)
+
+    local open_path = self.plugin.ui and self.plugin.ui.document and self.plugin.ui.document.file
+    local removed, folders, unresolved = 0, {}, 0
+    for _i, info in ipairs(self:getDownloadedBookInfos()) do
+        if info.path ~= open_path then
+            local verdict
+            if info.series_id then
+                verdict = Adult.knownSeries(self.plugin, info.series_id)
+                if verdict == nil then
+                    local series = self.plugin.api:get_series(info.series_id)
+                    if type(series) == "table" then verdict = Adult.isSeries(self.plugin, series) end
+                end
+            end
+            if verdict == nil then
+                unresolved = unresolved + 1
+            elseif verdict == true then
+                self:deleteDownloadedFile(info.path, true)
+                removed = removed + 1
+                local dir = info.path:match("^(.*)/[^/]+$")
+                if dir then folders[dir] = true end
+            end
+        end
+    end
+    for dir in pairs(folders) do pcall(self.removeEmptySeriesFolder, self, dir) end
+    if removed > 0 then
+        logger.info("kouchiyomi: removed", removed, "downloaded 18+ chapter(s)")
+    end
+    if is_manual then
+        if removed > 0 then
+            self.plugin:notify(T(_("Removed %1 downloaded 18+ chapter(s). Progress stays on Uchiyomi."), removed), "info")
+        elseif unresolved > 0 then
+            self.plugin:notify(T(_("Nothing to remove; %1 chapter(s) could not be identified."), unresolved), "info")
+        else
+            self.plugin:notify(_("No downloaded 18+ chapters."), "info")
+        end
+    end
+    return removed, unresolved
+end
+
+--- The once-ever version of the sweep, for upgrading from a version that
+-- downloaded 18+ chapters. Nothing is marked done until a run that resolved
+-- every chapter it found, so a series the server could not answer for is not
+-- quietly skipped forever.
+function Sync:sweepAdultDownloadsOnce()
+    if self.plugin.settings.adult_sweep_done then return end
+    if self.plugin.settings.stream_adult_chapters == false then return end
+    local ok, _removed, unresolved = pcall(self.sweepAdultDownloads, self, false)
+    if not ok then return end
+    if (tonumber(unresolved) or 0) > 0 then return end
+    self.plugin.settings.adult_sweep_done = true
+    self.plugin:saveSettings()
 end
 
 -- ---------------------------------------------------------------------------

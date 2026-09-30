@@ -70,6 +70,16 @@ Davis), reworked for Uchiyomi's native API.
   mode only; Settings ▸ Reading turns it off. Gestures: "Uchiyomi: portrait /
   landscape" and "Uchiyomi: rotate for wide pages on/off" (KOReader's own
   "Toggle orientation" is understood too).
+- **18+ stays off the device**: 18+ series are streamed, never downloaded, so no
+  file of one can appear in the file manager, the cover browser, KOReader's
+  history or "open last book on startup" — and they are not listed on the home
+  screen, in updates, favourites, history, bookmarks or a plain search, because
+  the plugin stops asking the server to include them. Opening a library marked
+  18+ from the Libraries list still works: Uchiyomi filters its *listings*, not
+  what you ask for by name. Chapters an older version downloaded are swept once
+  on upgrade. Settings ▸ Server turns it off. (An admin can also mark genres as
+  adult server-side; that list is not exposed by the API, so only libraries and
+  per-series age ratings are detected.)
 - **Footer**: "⇅N" while changes wait to sync, "↓N" while downloads run.
 - **Series actions**: favourite, download next unread N, mark all read.
 - **Reads like manga**: chapters open with right-to-left page turning, so the
@@ -103,6 +113,8 @@ Uchiyomi v0.39.
 |---------------------------------------|--------------------------------------------|
 | page N of a downloaded/streamed CBZ   | `PUT /api/books/{id}/progress {page, completed}` |
 | where you are in a series             | `/api/home` onDeck, else `/api/history`     |
+| 18+ hidden from listings              | not sending `?adult=1` (server's `browsable()`) |
+| is this series 18+                    | `adult` on `/api/libraries`, `metadata.ageRating` |
 | dogear bookmark on page N             | `PUT/DELETE /api/bookmarks/{bookId}/{page}` |
 | downloaded file ⇄ chapter             | `uchiyomi_book_id` in the sidecar          |
 | whole-chapter download                | `/opds/book/{id}/file` (OPDS token)        |
