@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.12.0 — 2026-09-30
+Performance: the three things that made the plugin stall, found by reading the hot paths rather than by
+reproducing a crash. Nothing here changes what it does.
+
+- **Opening a chapter no longer waits on the server.** The online part of chapter-open was six to ten
+  synchronous HTTP calls on the UI thread -- flush offline progress, flush bookmarks, fetch progress,
+  fetch the home rail, fetch bookmarks, one `get_book` per chapter awaiting cleanup -- and each could
+  block for as long as its timeout. On a weak link that is a frozen device between tapping a chapter and
+  being able to read it. The page is drawn first and the server is caught up with 1.5 s later. The only
+  visible difference is that a catch-up prompt arrives just after the page instead of just before it.
+- **Settings are written once, not fifty times.** `saveSettings()` serialised the entire settings table
+  and wrote it to the device on every call -- and it is called from about fifty places, several of them
+  per page turn (the offline progress buffer, the next-chapter cache, an 18+ verdict). The writes are now
+  coalesced into one a couple of seconds later, and forced on document close, on suspend and on
+  KOReader's own FlushSettings, so nothing is lost. Closing a document forces it before the next one's
+  instance exists, so a delayed write cannot land on top of newer settings.
+- **The caches no longer grow forever.** Eight of them lived in that same table, keyed by things that
+  outlive what they describe: a path that has been deleted, a chapter id whose file went to the storage
+  cap. Since the whole table is serialised on every write, their size was paid for again and again.
+  Stale entries are dropped at most once a day, twenty seconds after a chapter opens.
+- **Routine API calls give up after 10 s (25 s total) instead of 15 s (60 s).** They run on the UI thread
+  and a working server answers in milliseconds, so a long timeout only buys a longer freeze; a minute of
+  frozen e-ink is indistinguishable from a crash. File and page downloads keep their own long timeouts.
+- Also: the sleep-screen guard is now settled from what is already known when a chapter opens, instead of
+  asking the server -- it has to be in place before the power button can be pressed, so it could not be
+  left to the deferred pass. An unknown series is settled by that pass a moment later.
+
+Checked and found sound, so left alone: the streaming page cache (bounded to one page, frees its
+blitbuffers), and the background-download subprocesses (reaped by the poller, killed after 15 minutes,
+with preventStandby/allowStandby balanced).
+
 ## 0.11.0 — 2026-09-30
 - **An 18+ chapter can no longer reach the sleep screen.** This cannot be done when the device suspends:
   KOReader paints the sleep screen from `Device:onPowerEvent` (`Screensaver:setup()` then `show()`) and

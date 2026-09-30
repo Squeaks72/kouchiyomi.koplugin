@@ -138,8 +138,10 @@ function Adult.isBook(plugin, book, series)
 end
 
 --- Is the open document's chapter 18+? The sidecar holds the series id, so this
--- is answerable for a downloaded chapter without the server.
-function Adult.isPath(plugin, filepath)
+-- is answerable for a downloaded chapter without the server. `offline_only`
+-- refuses to ask the server, for callers that must not block (the sleep-screen
+-- guard has to be armed before the reader can press the power button).
+function Adult.isPath(plugin, filepath, offline_only)
     if not filepath then return nil end
     local Sidecar = require("uchi/sidecar")
     local sid
@@ -152,7 +154,7 @@ function Adult.isPath(plugin, filepath)
     if not sid then return nil end
     local known = Adult.knownSeries(plugin, sid)
     if known ~= nil then return known end
-    if not plugin.api then return nil end
+    if offline_only or not plugin.api then return nil end
     local s = plugin.api:get_series(sid)
     if type(s) ~= "table" then return nil end
     return Adult.isSeries(plugin, s)

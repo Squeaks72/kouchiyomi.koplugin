@@ -158,6 +158,7 @@ local DEFAULT_SETTINGS = {
     next_chapter_cache = {},
     prev_chapter_cache = {},
     pending_cleanup = {},
+    caches_pruned_at = 0,          -- last time the path-keyed caches were swept
 }
 
 function Plugin:init()
@@ -316,10 +317,104 @@ function Plugin:docDefaults(series_id)
     return t
 end
 
-function Plugin:saveSettings()
+--[[
+    Record the settings, and write the file soon rather than now.
+
+    Copying into the LuaSettings object is a table assignment; `flush()`
+    serialises the WHOLE table and writes it to the device. This is called from
+    about fifty places, several of them per page turn (the offline progress
+    buffer, the next-chapter cache, an 18+ verdict), and the table holds caches
+    that grow with the library -- so on a Kobo the flush was the most expensive
+    thing a page turn did.
+
+    The writes are coalesced into one, a couple of seconds later. Anything that
+    must not be lost forces it: closing a document, suspending, and KOReader's
+    own FlushSettings. That also closes the window in which a delayed flush
+    from the instance of a document just closed could write its copy of the
+    table over a newer one.
+--]]
+function Plugin:saveSettings(immediate)
     if not self.settings_file then return end
     for k, v in pairs(self.settings) do self.settings_file:saveSetting(k, v) end
-    self.settings_file:flush()
+    if immediate then
+        Plugin._flush_pending = nil
+        pcall(function() self.settings_file:flush() end)
+        return
+    end
+    -- On the class: one pending flush per reader, not per document.
+    if Plugin._flush_pending then return end
+    Plugin._flush_pending = true
+    UIManager:scheduleIn(2, function()
+        if not Plugin._flush_pending then return end
+        Plugin._flush_pending = nil
+        pcall(function() self.settings_file:flush() end)
+    end)
+end
+
+function Plugin:flushSettings()
+    self:saveSettings(true)
+end
+
+--- KOReader asks everything to write itself out (before suspend, before exit).
+function Plugin:onFlushSettings()
+    self:flushSettings()
+end
+
+--[[
+    Drop what the caches no longer need.
+
+    Every one of these is keyed by something that outlives what it describes, so
+    they only ever grew: a path that was deleted, a chapter id whose file went
+    with the storage cap. The whole table is serialised on every flush, so their
+    size is paid for over and over. Runs at most daily, off the critical path.
+--]]
+function Plugin:pruneCaches()
+    local now = os.time()
+    if now - (tonumber(self.settings.caches_pruned_at) or 0) < 24 * 60 * 60 then return end
+    local lfs = require("libs/libkoreader-lfs")
+    local dropped = 0
+    -- Keyed by path: gone is gone.
+    for _i, key in ipairs({ "matched_books_cache", "downloaded_books" }) do
+        local t = self.settings[key]
+        if type(t) == "table" then
+            for path in pairs(t) do
+                if type(path) ~= "string" or lfs.attributes(path, "mode") ~= "file" then
+                    t[path] = nil
+                    dropped = dropped + 1
+                end
+            end
+        end
+    end
+    -- Keyed by chapter id, and only useful while that chapter is on the device:
+    -- the snapshot is the "what it looked like last time" side of the bookmark
+    -- merge, and there is nothing left to merge for a chapter that has gone.
+    -- Only past a size where it is worth the lookups.
+    local snaps = self.settings.bookmark_snapshots
+    if type(snaps) == "table" then
+        local n = 0
+        for _k in pairs(snaps) do n = n + 1 end
+        if n > 200 then
+            for book_id in pairs(snaps) do
+                if not self.sync:getLocalPathForBookId(book_id) then
+                    snaps[book_id] = nil
+                    dropped = dropped + 1
+                end
+            end
+        end
+    end
+    -- Answers the server can give again. Cheaper to forget the lot than to
+    -- track which are still reachable.
+    for _i, key in ipairs({ "next_chapter_cache", "prev_chapter_cache" }) do
+        local t = self.settings[key]
+        if type(t) == "table" then
+            local n = 0
+            for _k in pairs(t) do n = n + 1 end
+            if n > 500 then self.settings[key] = {}; dropped = dropped + n end
+        end
+    end
+    self.settings.caches_pruned_at = now
+    self:saveSettings(true)
+    if dropped > 0 then logger.info("kouchiyomi: pruned", dropped, "stale cache entr(ies)") end
 end
 
 function Plugin:initAPI()
@@ -647,27 +742,51 @@ function Plugin:onReaderReady()
         end
     end)
 
+    --[[
+        Catching up with the server, once the page is on screen.
+
+        Every call below is synchronous HTTP on the UI thread, and each can
+        block for as long as its timeout allows: this was six to ten round trips
+        between opening a chapter and being able to read it, which on a weak
+        link is a reader staring at a frozen device. None of it is needed to
+        show the page. The only thing that changes for the reader is that a
+        catch-up prompt arrives a moment after the page rather than before it.
+    --]]
     local NetworkMgr = require("ui/network/manager")
     if NetworkMgr:isOnline() then
-        if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end
-        self.bookmarks:flushOffline()
-        -- Not when we were told where to open: that page IS the answer, and
-        -- asking the server again would only argue with it.
-        if not goto_page then self.sync:syncOnOpen(ui) end
-        self.bookmarks:syncOpenDocument(ui, false)
-        -- The chapter we just moved on from may go now that Uchiyomi has it.
-        pcall(self.sync.processCleanup, self.sync)
+        UIManager:scheduleIn(1.5, function()
+            -- The document may have been closed, or swapped for another, while
+            -- this was waiting.
+            if not self.is_active then return end
+            if not (self.ui and self.ui.document and self.ui.document.file == filepath) then return end
+            if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end
+            self.bookmarks:flushOffline()
+            -- Not when we were told where to open: that page IS the answer, and
+            -- asking the server again would only argue with it.
+            if not goto_page then self.sync:syncOnOpen(ui) end
+            self.bookmarks:syncOpenDocument(ui, false)
+            -- The chapter we just moved on from may go now that Uchiyomi has it.
+            pcall(self.sync.processCleanup, self.sync)
+            -- And the sleep guard, for a series nothing was known about above.
+            pcall(SleepScreen.forPath, self, filepath)
+        end)
     end
     self:_installFooterIndicator(ui)
     -- Streaming means an 18+ chapter is normally never a document at all; this
     -- is for a device where that was turned off, and for one that still has
-    -- chapters an older version downloaded.
-    pcall(SleepScreen.forPath, self, filepath)
+    -- chapters an older version downloaded. Answered from what is already known
+    -- so it cannot block: it has to be settled before the power button can be
+    -- pressed, and the deferred pass below settles the unknown case.
+    pcall(SleepScreen.forPath, self, filepath, true)
     -- The page this chapter opens on may itself be a spread, and PageUpdate is
     -- not guaranteed to have fired for it by now.
     UIManager:nextTick(function()
         if not self.is_active then return end
         pcall(Rotation.forPage, self, ui.view and ui.view.state and ui.view.state.page)
+    end)
+    -- Last of all, and at most once a day: the caches that only ever grew.
+    UIManager:scheduleIn(20, function()
+        if self.is_active then pcall(self.pruneCaches, self) end
     end)
     -- Read ahead once the first page is on screen: remember the next chapter
     -- (for when Wi-Fi is gone later) and fetch the next N in the background.
@@ -864,6 +983,9 @@ end
 function Plugin:onCloseDocument()
     pcall(Rotation.restore, self)
     pcall(SleepScreen.disarm, self)
+    -- Before the next document's instance exists, so a delayed flush from this
+    -- one cannot write its copy of the table over the new one's.
+    self:flushSettings()
     self:_push()
     self:_removeFooterIndicator()
     if self.current_book_id and self.ui then
@@ -875,6 +997,7 @@ end
 
 function Plugin:onSuspend()
     self:_push()
+    self:flushSettings()
 end
 
 function Plugin:onAnnotationsModified(items)

@@ -98,10 +98,14 @@ function Sleep.forBook(plugin, book, series)
     return Sleep.disarm(plugin)
 end
 
-function Sleep.forPath(plugin, filepath)
+--- `offline_only` asks only what is already known, so this can run on the
+-- chapter-open path without a round trip. A chapter whose series has never been
+-- looked at answers nothing and is armed by the deferred pass a moment later.
+function Sleep.forPath(plugin, filepath, offline_only)
     local Adult = require("uchi/adult")
-    local ok, verdict = pcall(Adult.isPath, plugin, filepath)
+    local ok, verdict = pcall(Adult.isPath, plugin, filepath, offline_only)
     if ok and verdict == true then return Sleep.arm(plugin) end
+    if offline_only and verdict == nil then return false end   -- not yet knowable; leave it be
     return Sleep.disarm(plugin)
 end
 

@@ -164,7 +164,13 @@ function UchiyomiAPI:request(path, method, body, opts)
         method = method or "GET",
         headers = headers,
         post_data = post_data,
-        timeout = opts.timeout or 15,
+        -- A JSON call to this server answers in milliseconds on a working
+        -- link, so the only thing a long timeout buys is a longer freeze: these
+        -- run synchronously on the UI thread, and a minute of it is
+        -- indistinguishable from a crash. File and page downloads pass their
+        -- own, much longer, timeouts (download_book, download_page).
+        timeout = opts.timeout or 10,
+        total_timeout = opts.total_timeout or 25,
     })
     if not res then return nil, err end
     if res.code < 200 or res.code >= 300 then
