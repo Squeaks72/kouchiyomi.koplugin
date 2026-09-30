@@ -12,6 +12,7 @@ cd /path/to/kouchiyomi.koplugin && lua5.1 tests/cleanup.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/rotation.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/adult.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/stats.lua
+cd /path/to/kouchiyomi.koplugin && lua5.1 tests/sleepscreen.lua
 ```
 
 The rest run with KOReader's own LuaJIT from an extracted KOReader install (the

@@ -194,6 +194,8 @@ end
 
 function Stream:onViewerClose(viewer)
     viewer._closed = true
+    -- The sleep screen goes back to the reader's own as the chapter leaves it.
+    pcall(function() require("uchi/sleepscreen").disarm(self.plugin) end)
     if viewer._push_fn then UIManager:unschedule(viewer._push_fn); viewer._push_fn = nil end
     local n = viewer._images_list_cur or 1
     self:_push(viewer, n)
@@ -310,6 +312,10 @@ function Stream:open(book, start_page)
     local msg = InfoMessage:new{ text = T(_("Opening %1..."), Labels.display(book, true)) }
     UIManager:show(msg)
     UIManager:forceRePaint()
+
+    -- Before a page is on screen: an 18+ chapter must not be able to reach the
+    -- sleep screen, and that has to be arranged in advance (uchi/sleepscreen).
+    pcall(function() require("uchi/sleepscreen").forBook(self.plugin, book) end)
 
     local count = book.media and tonumber(book.media.pagesCount) or 0
     local progress = book.readProgress

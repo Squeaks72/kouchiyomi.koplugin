@@ -25,6 +25,7 @@ local Stream = require("uchi/stream")
 local SettingsMenu = require("uchi/menu")
 local Updater = require("uchi/updater")
 local Rotation = require("uchi/rotation")
+local SleepScreen = require("uchi/sleepscreen")
 local i18n = require("uchi/i18n")
 
 local Plugin = WidgetContainer:extend{
@@ -68,6 +69,11 @@ local DEFAULT_SETTINGS = {
     -- its title and series, and outlive the file. Cleared by the same sweep;
     -- the database is copied to statistics.sqlite3.kouchiyomi-bkp first, once.
     purge_adult_stats = true,
+    -- While an 18+ chapter is on screen, hold KOReader's sleep screen at
+    -- something that covers the panel. It cannot be done at suspend time -- the
+    -- screensaver is painted before a plugin hears about it -- so it is set up
+    -- in advance and released when the chapter closes. See uchi/sleepscreen.
+    guard_sleep_screen = true,
 
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
@@ -172,6 +178,8 @@ function Plugin:init()
     -- clear out chapters a version before 0.10.0 downloaded. Off the critical
     -- path of opening a document, and its own flag makes every later start a
     -- single table lookup.
+    -- A sleep screen still held by a session that was killed mid-chapter.
+    pcall(SleepScreen.restoreIfStale, self)
     if not self.settings.adult_sweep_done then
         UIManager:scheduleIn(8, function()
             if NetworkMgr:isOnline() then pcall(self.sync.sweepAdultDownloadsOnce, self.sync) end
@@ -651,6 +659,10 @@ function Plugin:onReaderReady()
         pcall(self.sync.processCleanup, self.sync)
     end
     self:_installFooterIndicator(ui)
+    -- Streaming means an 18+ chapter is normally never a document at all; this
+    -- is for a device where that was turned off, and for one that still has
+    -- chapters an older version downloaded.
+    pcall(SleepScreen.forPath, self, filepath)
     -- The page this chapter opens on may itself be a spread, and PageUpdate is
     -- not guaranteed to have fired for it by now.
     UIManager:nextTick(function()
@@ -851,6 +863,7 @@ end
 
 function Plugin:onCloseDocument()
     pcall(Rotation.restore, self)
+    pcall(SleepScreen.disarm, self)
     self:_push()
     self:_removeFooterIndicator()
     if self.current_book_id and self.ui then

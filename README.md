@@ -80,7 +80,10 @@ Davis), reworked for Uchiyomi's native API.
   on upgrade, along with their rows in KOReader's reading statistics (the
   database is backed up first). Settings ▸ Server turns it off. (An admin can
   also mark genres as adult server-side; that list is not exposed by the API, so
-  only libraries and per-series age ratings are detected.)
+  only libraries and per-series age ratings are detected.) While an 18+ chapter
+  is on screen, KOReader's sleep screen is held at a covered panel — the
+  screensaver is painted before a plugin hears about the suspend, so it has to
+  be arranged in advance — and released when the chapter closes.
 - **Footer**: "⇅N" while changes wait to sync, "↓N" while downloads run.
 - **Series actions**: favourite, download next unread N, mark all read.
 - **Reads like manga**: chapters open with right-to-left page turning, so the

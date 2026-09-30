@@ -161,6 +161,19 @@ function Menu:serverMenu()
             end,
         },
         {
+            text = _("Keep 18+ off the sleep screen"),
+            help_text = _("KOReader paints the sleep screen before a plugin is told the device is suspending, so this cannot be done at the time -- while an 18+ chapter is on screen, the sleep screen is held at a plain covered panel and released when the chapter closes. It matters most if your sleep screen is set to 'disable', which on e-ink leaves the page you were reading on the panel for as long as the device sleeps."),
+            checked_func = function() return p.settings.guard_sleep_screen ~= false end,
+            keep_menu_open = true,
+            callback = function()
+                p.settings.guard_sleep_screen = not (p.settings.guard_sleep_screen ~= false)
+                p:saveSettings()
+                if p.settings.guard_sleep_screen == false then
+                    pcall(function() require("uchi/sleepscreen").disarm(p) end)
+                end
+            end,
+        },
+        {
             text = _("Also clear 18+ books from KOReader's statistics"),
             help_text = _("KOReader keeps a row per document ever opened -- title, author, series and every reading session -- and it outlives the file, so 18+ chapters read before 0.10.0 are still listed under Statistics. The sweep below clears them: by file identity for what it deletes, and by series name for what an earlier version deleted long ago. The database is copied to statistics.sqlite3.kouchiyomi-bkp first, once, because this lowers real reading totals and streaks and cannot be undone."),
             checked_func = function() return p.settings.purge_adult_stats ~= false end,

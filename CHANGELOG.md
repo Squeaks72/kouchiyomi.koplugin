@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0 — 2026-09-30
+- **An 18+ chapter can no longer reach the sleep screen.** This cannot be done when the device suspends:
+  KOReader paints the sleep screen from `Device:onPowerEvent` (`Screensaver:setup()` then `show()`) and
+  only broadcasts the `Suspend` event a plugin could hear *afterwards*. So it is arranged in advance --
+  while an 18+ chapter is on screen the two settings `setup()` reads are held at values that cover the
+  panel, and released when the chapter closes.
+  - It matters most with the sleep screen set to "disable", which on e-ink leaves the page you were
+    reading on the panel for as long as the device sleeps.
+  - Both settings are forced, not just one: `screensaver_msg_background` defaults to `"none"`, which draws
+    the message *over* the page.
+  - The originals are stashed in the plugin's own settings rather than in memory, so a session killed
+    mid-chapter has the reader's own sleep screen put back on the next start instead of leaving it
+    replaced for good.
+  - Settings ▸ Server ▸ "Keep 18+ off the sleep screen" turns it off.
+  - (The cover itself was already safe: a streamed chapter never opens a document, so KOReader's
+    `lastfile` -- which is what a "cover" sleep screen uses -- never becomes the 18+ one.)
+- `tests/sleepscreen.lua` covers the hold and, more to the point, the restore. It caught a real bug while
+  being written: `current == nil and false or current` can never yield `false` in Lua, so a setting the
+  reader had never set was stashed as nothing and would have been left replaced forever.
+
 ## 0.10.1 — 2026-09-30
 - The 18+ sweep now also clears **KOReader's reading statistics**. `statistics.sqlite3` keeps a row per
   document ever opened -- title, author, series and every reading session -- and it outlives the file, so
