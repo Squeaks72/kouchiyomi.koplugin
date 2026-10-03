@@ -496,15 +496,18 @@ end
 
 --[[
     Where the reader is in a whole series, not in one chapter: the chapter they
-    are part-way through, or the next unread one when the last chapter they
-    touched is finished. The returned book carries its own readProgress, so the
-    page they stopped on comes with it.
+    touched most recently, at the page they left it on -- or the chapter after
+    it when that one is finished. The returned book carries its own
+    readProgress, so the page comes with it.
 
-    Two sources, cheapest first:
-      * /api/home's onDeck -- the server's own "Keep reading" rail, which
-        already encodes exactly that rule, one request for every series at once;
-      * /api/history -- per chapter and unbounded by the rail's size, for a
-        series that has fallen off onDeck.
+    /api/history is the source of truth: it is ordered by when each chapter was
+    last read, so the first row for the series IS where the reader left off,
+    however many chapters ahead of this device that is.
+
+    /api/home's onDeck is only the fallback (a series that fell off the end of
+    the history window). Its "next unread" rule is the LOWEST-numbered chapter
+    not finished, so for anyone who skipped or read out of order it names an
+    early chapter, not the place they actually stopped.
 
     Returns the book plus where the answer came from, or nil plus a reason.
 --]]
@@ -512,27 +515,21 @@ function UchiyomiAPI:get_series_position(series_id)
     if not series_id then return nil, "no series" end
     local want = tostring(series_id)
 
-    local home = self:get_home()
-    if type(home) == "table" and type(home.onDeck) == "table" then
-        for _i, b in ipairs(home.onDeck) do
-            if type(b) == "table" and b.id and tostring(b.seriesId) == want then
-                return b, "on-deck"
-            end
-        end
-    end
-
-    local hist = self:get_history(50)
+    local hist = self:get_history(200)
     if type(hist) == "table" then
         for _i, h in ipairs(hist.content or hist) do
             if type(h) == "table" and tostring(h.series_id) == want and h.book_id then
-                if h.completed then
-                    -- Finished that one: where they are is whatever follows it.
+                local function after_finished()
                     local nxt = self:get_next_book(h.book_id)
                     if type(nxt) == "table" and nxt.id then return nxt, "history-next" end
                     return nil, "series finished"
                 end
+                if h.completed then return after_finished() end
                 local b = self:get_book(h.book_id)
                 if type(b) == "table" and b.id then
+                    if type(b.readProgress) == "table" and b.readProgress.completed then
+                        return after_finished()
+                    end
                     -- The history row holds the page even when the book DTO has
                     -- no readProgress of its own (progress read silently).
                     if type(b.readProgress) ~= "table" then
@@ -540,6 +537,15 @@ function UchiyomiAPI:get_series_position(series_id)
                     end
                     return b, "history"
                 end
+            end
+        end
+    end
+
+    local home = self:get_home()
+    if type(home) == "table" and type(home.onDeck) == "table" then
+        for _i, b in ipairs(home.onDeck) do
+            if type(b) == "table" and b.id and tostring(b.seriesId) == want then
+                return b, "on-deck"
             end
         end
     end

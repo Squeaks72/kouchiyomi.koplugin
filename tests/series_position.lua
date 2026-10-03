@@ -66,15 +66,26 @@ local function api_for(fixture)
     return api
 end
 
--- 1. The server's own "Keep reading" rail answers it in one request.
-local api = api_for{ home = { onDeck = {
-    chapter(12, { page = 8, completed = false }),
-    { id = "x1", seriesId = "s2", metadata = { number = "3", numberSort = 3 } },
-} } }
+-- 1. History is the truth: the most recent row for the series is where the
+--    reader left off, even when onDeck (lowest unfinished chapter) names an
+--    early chapter -- the reported bug, several chapters behind the real spot.
+local api = api_for{
+    home = { onDeck = { chapter(2, nil) } },
+    history = { content = {
+        { series_id = "s2", book_id = "x9", page = 1, completed = false },
+        { series_id = "s1", book_id = "b12", page = 8, completed = false },
+        { series_id = "s1", book_id = "b11", page = 20, completed = true },
+    } },
+    books = { b12 = chapter(12, { page = 8, completed = false }) },
+}
 local pos, src = api:get_series_position("s1")
-check("on-deck chapter is the position", pos and pos.id == "b12", src)
+check("latest history row is the position", pos and pos.id == "b12", src)
 check("and its page comes with it", pos and pos.readProgress and pos.readProgress.page == 8)
-check("one request for the common case", api.requests == 1, api.requests .. " requests")
+check("not onDeck's early chapter", pos and pos.id ~= "b2")
+
+-- 1b. onDeck is the fallback when history does not hold the series.
+pos, src = api_for{ home = { onDeck = { chapter(12, { page = 8, completed = false }) } } }:get_series_position("s1")
+check("on-deck fallback", pos and pos.id == "b12" and src == "on-deck", src)
 
 -- 2. Another series' entry on the rail is not this series' position.
 pos, src = api_for{ home = { onDeck = { { id = "x1", seriesId = "s2" } } },

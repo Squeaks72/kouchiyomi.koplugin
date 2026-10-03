@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.1 — 2026-10-02
+- **"Uchiyomi is further along" now jumps to where you actually left off.** The series catch-up asked
+  Uchiyomi's "Keep reading" rail where you are, but that rail names the *lowest-numbered chapter you have not
+  finished*, so if you had read ahead (or skipped around) the prompt fell through to the in-chapter
+  "page 18 of 18" dialog and only offered the end of the current chapter. The reading history -- ordered by
+  when each chapter was last read -- is now the source of truth: you are offered the most recent chapter at
+  the page you left it on (or the chapter after it, if it was finished). The rail is kept as a fallback.
+
 ## 0.12.0 — 2026-09-30
 Performance: the three things that made the plugin stall, found by reading the hot paths rather than by
 reproducing a crash. Nothing here changes what it does.
