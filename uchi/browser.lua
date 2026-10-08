@@ -381,13 +381,35 @@ function UchiBrowser:_homeData(force)
     local p = self.plugin
     local cache = p._home_cache
     if not force and cache and os.time() - cache.ts < 600 then return cache end
-    local data = { ts = os.time(), on_deck = {} }
+    local data = { ts = os.time(), on_deck = {}, lists = {} }
     local home = p.api:get_home()
     if type(home) == "table" and type(home.onDeck) == "table" then
         data.on_deck = home.onDeck
     else
         local hist = self:_keepReadingFromHistory()
         if type(hist) == "table" then data.on_deck = hist.content or {} end
+    end
+    local limit = tonumber(p.settings.home_list_limit) or 8
+    for _i, id in ipairs(p.settings.home_lists or {}) do
+        local col = p.api:get_collection(id)
+        if type(col) == "table" then
+            local entry = { id = id, name = col.name or (p.settings.home_list_names or {})[id] or id, books = {} }
+            if col.name then
+                p.settings.home_list_names = p.settings.home_list_names or {}
+                p.settings.home_list_names[id] = col.name
+            end
+            for _j, s in ipairs(col.items or col.content or {}) do
+                if #entry.books >= limit then break end
+                local book = p.sync:getNextUnreadBook(s)
+                if book then
+                    book.__series = s
+                    book.seriesTitle = (book.seriesTitle ~= nil and book.seriesTitle ~= "") and book.seriesTitle or series_title(s)
+                    book.__unread = tonumber(s.booksUnreadCount) or (s.yomi and tonumber(s.yomi.unread))
+                    table.insert(entry.books, book)
+                end
+            end
+            table.insert(data.lists, entry)
+        end
     end
     p._home_cache = data
     return data
@@ -430,6 +452,9 @@ function UchiBrowser:getHomeItemTable()
             if p.settings.show_covers ~= false then
                 local covers = {}
                 for _i, b in ipairs(data.on_deck) do table.insert(covers, b) end
+                for _i, l in ipairs(data.lists) do
+                    for _j, b in ipairs(l.books) do table.insert(covers, b) end
+                end
                 pcall(p.cache.prefetchCovers, p.cache, covers, "book")
             end
             header(_("Keep reading"))
@@ -437,6 +462,20 @@ function UchiBrowser:getHomeItemTable()
                 note(_("Nothing in progress. Open a chapter to start."))
             else
                 for _i, b in ipairs(data.on_deck) do table.insert(items, keep_reading_item(self, b)) end
+            end
+            for _i, l in ipairs(data.lists) do
+                header(l.name)
+                if #l.books == 0 then
+                    note(_("Nothing unread in this list."))
+                else
+                    for _j, b in ipairs(l.books) do
+                        local item = book_item(self, b, true)
+                        if b.__unread and b.__unread > 0 then
+                            item.text = item.text .. "  [" .. T(_("%1 unread"), b.__unread) .. "]"
+                        end
+                        table.insert(items, item)
+                    end
+                end
             end
         else
             logger.warn("kouchiyomi: home failed:", tostring(data))

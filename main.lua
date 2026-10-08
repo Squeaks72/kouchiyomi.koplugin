@@ -92,6 +92,12 @@ local DEFAULT_SETTINGS = {
     -- you are working through from thinning out behind you (0 = off).
     keep_newest_chapters = 3,
     footer_sync_indicator = true,
+    -- Lists shown on the browser's home screen, each as its series' next unread chapters. "favorites" is
+    -- Uchiyomi's built-in favourites; the rest are ids of the user's own lists. Names are kept so the
+    -- settings page can show them offline.
+    home_lists = {},
+    home_list_names = {},
+    home_list_limit = 8,
     -- rtl | ltr | auto | off. Manga reads right-to-left, so that is the default: the tap zone on the
     -- RIGHT turns FORWARD. "auto" follows the series' own readingDirection, which sounds better than it
     -- is -- Uchiyomi's BFF hardcodes WEBTOON for every owned series (lib/ownedCatalog.ts seriesDto), so

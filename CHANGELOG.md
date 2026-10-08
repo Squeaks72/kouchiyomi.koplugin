@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0 -- 2026-10-08
+- **Choose which lists the browser's home screen shows.** Settings > Home screen lists ticks any of your
+  Uchiyomi lists (and Favourites). Each ticked list appears under "Keep reading" as the next unread chapter
+  of its series, in the list's own order, up to a configurable number of series (8 by default). Nothing is
+  shown by default; tick Favourites to get back what 0.12.2 removed. The result is cached for 10 minutes.
+
 ## 0.12.2 -- 2026-10-08
 Performance: the 30-second freeze the first time the plugin is used after a while. Everything below ran on
 the UI thread the moment Wi-Fi connected or the browser opened.

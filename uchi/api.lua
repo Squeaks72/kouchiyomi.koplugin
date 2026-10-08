@@ -591,6 +591,17 @@ function UchiyomiAPI:get_home()
     return self:request("/api/home")
 end
 
+--- The caller's own lists: { content = { { id=, name=, item_count= } } }. The built-in "favorites" list
+-- is not among them, but answers to the same id below.
+function UchiyomiAPI:get_collections()
+    return self:request("/api/collections")
+end
+
+--- One list with its series in the list's own order: { id=, name=, items = { series... } }.
+function UchiyomiAPI:get_collection(id)
+    return self:request("/api/collections/" .. escape(id))
+end
+
 function UchiyomiAPI:get_favorites()
     return self:request("/api/favorites")
 end

@@ -95,6 +95,7 @@ function Menu:createMainMenu()
     table.insert(items, { text = _("Reading"), keep_menu_open = true, sub_item_table_func = function() return self:readingMenu() end })
     table.insert(items, { text = _("Sync"), keep_menu_open = true, sub_item_table_func = function() return self:syncMenu() end })
     table.insert(items, { text = _("Downloads"), keep_menu_open = true, sub_item_table_func = function() return self:downloadsMenu() end })
+    table.insert(items, { text = _("Home screen lists"), keep_menu_open = true, sub_item_table_func = function() return self:homeListsMenu() end })
     table.insert(items, { text = _("Layout"), keep_menu_open = true, sub_item_table_func = function() return self:layoutMenu() end })
     table.insert(items, { text = _("Plugin update"), keep_menu_open = true, sub_item_table_func = function() return self:updateMenu() end })
     table.insert(items, {
@@ -496,6 +497,63 @@ function Menu:downloadsMenu()
             callback = function(tm) if tm then tm:updateItems() end end,
         },
     }
+end
+
+--- Which of the user's Uchiyomi lists the browser's home screen shows (next unread chapter of each series).
+function Menu:homeListsMenu()
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local p = self.plugin
+    local names = p.settings.home_list_names
+    if type(names) ~= "table" then names = {}; p.settings.home_list_names = names end
+    names.favorites = names.favorites or _("Favourites")
+
+    local available = { "favorites" }
+    local NetworkMgr = require("ui/network/manager")
+    if p.api and NetworkMgr:isOnline() then
+        local res = p.api:get_collections()
+        if type(res) == "table" then
+            for _i, c in ipairs(res.content or res) do
+                if c.id then names[c.id] = c.name or names[c.id] or c.id; table.insert(available, c.id) end
+            end
+        end
+    else
+        for id in pairs(names) do if id ~= "favorites" then table.insert(available, id) end end
+        table.sort(available, function(a, b) return tostring(names[a]) < tostring(names[b]) end)
+    end
+
+    local function selected(id)
+        for i, v in ipairs(p.settings.home_lists or {}) do if v == id then return i end end
+    end
+    local items = {}
+    for _i, id in ipairs(available) do
+        table.insert(items, {
+            text = names[id] or id,
+            checked_func = function() return selected(id) ~= nil end,
+            keep_menu_open = true,
+            callback = function()
+                p.settings.home_lists = p.settings.home_lists or {}
+                local at = selected(id)
+                if at then table.remove(p.settings.home_lists, at) else table.insert(p.settings.home_lists, id) end
+                p._home_cache = nil
+                p:saveSettings()
+            end,
+        })
+    end
+    table.insert(items, {
+        text_func = function() return T(_("Series shown per list: %1"), p.settings.home_list_limit or 8) end,
+        separator = true,
+        keep_menu_open = true,
+        callback = function(tm)
+            p._home_cache = nil
+            self:promptInput(_("Series shown per list"), "home_list_limit", true, tm)
+        end,
+    })
+    table.insert(items, 1, {
+        text = _("Shown on the Uchiyomi home screen, in the order ticked:"),
+        enabled_func = function() return false end,
+    })
+    return items
 end
 
 function Menu:layoutMenu()
