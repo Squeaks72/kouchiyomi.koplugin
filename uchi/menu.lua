@@ -23,6 +23,7 @@ function Menu:createMainMenu()
     local T = self.plugin.i18n.T
     local p = self.plugin
     local items = {}
+    if p.updater then p.updater:maybeAutoCheck() end
 
     table.insert(items, {
         text = _("Uchiyomi browser"),
@@ -444,10 +445,10 @@ function Menu:syncMenu()
             callback = function(tm) self:promptInput(_("Pages between progress pushes"), "push_interval", true, tm) end,
         },
         {
-            text = _("Reconcile downloaded chapters when Wi-Fi connects"),
-            checked_func = function() return p.settings.reconcile_on_connect ~= false end,
+            text = _("Reconcile downloaded chapters when Wi-Fi connects (slow, every 6 h at most)"),
+            checked_func = function() return p.settings.reconcile_on_connect == true end,
             keep_menu_open = true,
-            callback = function() p.settings.reconcile_on_connect = not (p.settings.reconcile_on_connect ~= false); p:saveSettings() end,
+            callback = function() p.settings.reconcile_on_connect = not (p.settings.reconcile_on_connect == true); p:saveSettings() end,
         },
         {
             text = _("Show pending sync / download count in the reader footer"),

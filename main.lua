@@ -129,7 +129,9 @@ local DEFAULT_SETTINGS = {
     -- to make without a word.
     sync_series_catchup = "prompt",  -- prompt | silent | disable
     push_interval = 5,
-    reconcile_on_connect = true,
+    reconcile_on_connect = false,   -- opening a chapter already syncs it; see Sync:reconcileDownloaded
+    reconcile_last = 0,
+    reconcile_default_migrated = false,
 
     download_dir = "",
     download_to_subfolder = true,
@@ -144,7 +146,7 @@ local DEFAULT_SETTINGS = {
     update_repo = "Squeaks72/kouchiyomi.koplugin",
     update_ref = "main",
     github_token = "",
-    update_auto_check = true,
+    update_auto_check = true,        -- checked when the Uchiyomi menu is opened, at most weekly
     update_last_check = 0,
     grid_columns = 3,
     grid_rows = 3,
@@ -174,7 +176,6 @@ function Plugin:init()
     self.ui.menu:registerToMainMenu(self)
     self:registerActions()
     local NetworkMgr = require("ui/network/manager")
-    if NetworkMgr:isOnline() then self.updater:maybeAutoCheck() end
     -- Once ever, and only when the server can say which libraries are 18+:
     -- clear out chapters a version before 0.10.0 downloaded. Off the critical
     -- path of opening a document, and its own flag makes every later start a
@@ -196,6 +197,13 @@ function Plugin:loadSettings()
     for k, v in pairs(DEFAULT_SETTINGS) do
         local saved = self.settings_file:readSetting(k)
         if saved ~= nil then self.settings[k] = saved else self.settings[k] = v end
+    end
+
+    -- 0.12.2 turned reconcile-on-connect off by default (it was a blocking request per downloaded chapter
+    -- on every Wi-Fi connect). Saved settings carry the old default, so flip it once.
+    if not self.settings.reconcile_default_migrated then
+        self.settings.reconcile_on_connect = false
+        self.settings.reconcile_default_migrated = true
     end
 
     -- Up to v0.2.0 this was `auto_reading_direction`, a checkbox meaning "follow the series". Following
@@ -1005,25 +1013,65 @@ function Plugin:onAnnotationsModified(items)
     pcall(function() self.bookmarks:onAnnotationsModified(self.ui, items) end)
 end
 
+--- Run catch-up steps one per timer, a few seconds apart, in the API's fast mode (short timeouts; the
+-- first failure skips the rest). Each step is its own tick so the UI repaints between them, and a slow
+-- or absent network costs seconds, not the sum of every request's timeout.
+function Plugin:runBackground(steps, on_done)
+    local i = 0
+    local function nxt()
+        i = i + 1
+        local step = steps[i]
+        if not step then
+            if self.api then self.api.fast, self.api.fast_dead = false, false end
+            if on_done then on_done() end
+            return
+        end
+        if self.api then
+            self.api.fast = true
+            pcall(step)
+            self.api.fast = false
+        end
+        UIManager:scheduleIn(3, nxt)
+    end
+    if self.api then self.api.fast_dead = false end
+    UIManager:scheduleIn(10, nxt)
+end
+
 function Plugin:onNetworkConnected()
-    if self.updater then self.updater:maybeAutoCheck() end
     if not self.api then return end
-    UIManager:scheduleIn(2, function()
-        if not self.settings.adult_sweep_done then pcall(self.sync.sweepAdultDownloadsOnce, self.sync) end
-        if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end
-        self.bookmarks:flushOffline()
-        if self.is_active and self.current_book_id and self.ui and self.ui.document then
-            self.sync:pullProgress(self.ui, false)
-            self.bookmarks:syncOpenDocument(self.ui, false)
-        end
-        if self.settings.reconcile_on_connect ~= false then
-            self.sync:reconcileDownloaded(false)
-        end
-        pcall(self.sync.processCleanup, self.sync)
-        if self.is_active and self.current_book_id then
-            pcall(self.sync.readAhead, self.sync, self.current_book_id, self.settings.read_ahead)
-        end
-    end)
+    if Plugin._connect_pending then return end
+    Plugin._connect_pending = true
+    local steps = {
+        function()
+            if not self.settings.adult_sweep_done then self.sync:sweepAdultDownloadsOnce() end
+        end,
+        function()
+            if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end
+        end,
+        function() self.bookmarks:flushOffline() end,
+        function()
+            if self.is_active and self.current_book_id and self.ui and self.ui.document then
+                self.sync:pullProgress(self.ui, false)
+                self.bookmarks:syncOpenDocument(self.ui, false)
+            end
+        end,
+        function() self.sync:processCleanup() end,
+        function()
+            if self.is_active and self.current_book_id then
+                self.sync:readAhead(self.current_book_id, self.settings.read_ahead)
+            end
+        end,
+        function()
+            -- Off by default; at most every 6 hours when on.
+            if self.settings.reconcile_on_connect == true
+                and os.time() - (tonumber(self.settings.reconcile_last) or 0) > 6 * 3600 then
+                self.settings.reconcile_last = os.time()
+                self:saveSettings()
+                self.sync:reconcileDownloaded(false)
+            end
+        end,
+    }
+    self:runBackground(steps, function() Plugin._connect_pending = nil end)
 end
 
 return Plugin

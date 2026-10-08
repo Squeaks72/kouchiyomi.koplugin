@@ -375,37 +375,19 @@ local function keep_reading_item(self, b)
     return item
 end
 
---- Home data: Uchiyomi's "Keep reading" rail plus the next unread chapter
--- of each favourite that gained chapters. Cached briefly so returning from
--- a sub-view does not hit the server again.
+--- Home data: Uchiyomi's "Keep reading" rail. Cached for ten minutes so returning from a sub-view does
+-- not hit the server again. (The "New in favourites" block was dropped in 0.12.2: it cost ~10 requests.)
 function UchiBrowser:_homeData(force)
     local p = self.plugin
     local cache = p._home_cache
-    if not force and cache and os.time() - cache.ts < 120 then return cache end
-    local data = { ts = os.time(), on_deck = {}, fresh = {} }
+    if not force and cache and os.time() - cache.ts < 600 then return cache end
+    local data = { ts = os.time(), on_deck = {} }
     local home = p.api:get_home()
     if type(home) == "table" and type(home.onDeck) == "table" then
         data.on_deck = home.onDeck
     else
         local hist = self:_keepReadingFromHistory()
         if type(hist) == "table" then data.on_deck = hist.content or {} end
-    end
-    local updates = p.api:get_updates()
-    if type(updates) == "table" then
-        local n = 0
-        for _i, u in ipairs(updates.content or updates) do
-            if u.series then
-                local book = p.sync:getNextUnreadBook(u.series)
-                if book then
-                    book.__series = u.series
-                    book.seriesTitle = (book.seriesTitle ~= nil and book.seriesTitle ~= "") and book.seriesTitle or series_title(u.series)
-                    book.__new = tonumber(u.newCount) or 0
-                    table.insert(data.fresh, book)
-                    n = n + 1
-                    if n >= 8 then break end
-                end
-            end
-        end
     end
     p._home_cache = data
     return data
@@ -448,7 +430,6 @@ function UchiBrowser:getHomeItemTable()
             if p.settings.show_covers ~= false then
                 local covers = {}
                 for _i, b in ipairs(data.on_deck) do table.insert(covers, b) end
-                for _i, b in ipairs(data.fresh) do table.insert(covers, b) end
                 pcall(p.cache.prefetchCovers, p.cache, covers, "book")
             end
             header(_("Keep reading"))
@@ -456,14 +437,6 @@ function UchiBrowser:getHomeItemTable()
                 note(_("Nothing in progress. Open a chapter to start."))
             else
                 for _i, b in ipairs(data.on_deck) do table.insert(items, keep_reading_item(self, b)) end
-            end
-            if #data.fresh > 0 then
-                header(_("New in favourites"))
-                for _i, b in ipairs(data.fresh) do
-                    local item = book_item(self, b, true)
-                    if b.__new > 0 then item.text = item.text .. "  [" .. T(_("+%1 new"), b.__new) .. "]" end
-                    table.insert(items, item)
-                end
             end
         else
             logger.warn("kouchiyomi: home failed:", tostring(data))

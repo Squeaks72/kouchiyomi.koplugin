@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.2 -- 2026-10-08
+Performance: the 30-second freeze the first time the plugin is used after a while. Everything below ran on
+the UI thread the moment Wi-Fi connected or the browser opened.
+
+- **Wi-Fi connect no longer reconciles every downloaded chapter.** It walked the download folder and made
+  a blocking request per chapter, on every connect. Now off by default (existing installs are switched
+  off once; Settings > Sync can turn it back on, and then it runs at most every 6 hours). Opening a chapter
+  already syncs that chapter.
+- **The rest of the connect-time catch-up is staggered and fails fast.** It starts 10 s after connecting,
+  one step per timer 3 s apart (so the screen repaints between them), with 4 s / 8 s request timeouts, and
+  the first network failure skips the remaining steps of that batch.
+- **The update check is out of the connect path.** It runs when the Uchiyomi menu is opened, at most weekly,
+  with an 8 s timeout, and no longer runs twice.
+- **The browser home is lighter.** The "New in favourites" block (about ten sequential requests plus covers)
+  is gone -- "New chapters (favourites)" under Browse shows the same thing on demand. "Keep reading" is
+  cached for 10 minutes instead of 2.
+
 ## 0.12.1 — 2026-10-02
 - **"Uchiyomi is further along" now jumps to where you actually left off.** The series catch-up asked
   Uchiyomi's "Keep reading" rail where you are, but that rail names the *lowest-numbered chapter you have not

@@ -37,7 +37,7 @@ local function fetch(url, token, accept)
     }
     if token and token ~= "" then headers["Authorization"] = "Bearer " .. token end
     local ok_su, socketutil = pcall(require, "socketutil")
-    if ok_su and socketutil then pcall(socketutil.set_timeout, socketutil, 20, 120) end
+    if ok_su and socketutil then pcall(socketutil.set_timeout, socketutil, 8, 30) end
     local req = { url = url, method = "GET", headers = headers, sink = ltn12.sink.table(out), redirect = false }
     local res, code, rheaders = (url:find("^https://") and https or http).request(req)
     if ok_su and socketutil then pcall(socketutil.reset_timeout, socketutil) end
@@ -293,8 +293,13 @@ end
 function Updater:maybeAutoCheck()
     if self.plugin.settings.update_auto_check == false then return end
     local last = tonumber(self.plugin.settings.update_last_check) or 0
-    if os.time() - last < 24 * 3600 then return end
+    if os.time() - last < 7 * 24 * 3600 then return end
+    if self._check_scheduled then return end
+    self._check_scheduled = true
     UIManager:scheduleIn(5, function()
+        self._check_scheduled = nil
+        local NetworkMgr = require("ui/network/manager")
+        if not NetworkMgr:isOnline() then return end
         local info = self:check()
         if info and info.newer then
             local _ = self.plugin.i18n._

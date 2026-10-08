@@ -159,6 +159,9 @@ function UchiyomiAPI:request(path, method, body, opts)
     local headers = self:get_headers()
     -- Uchiyomi rejects an empty body when a JSON content type is declared.
     if not post_data then headers["Content-Type"] = nil end
+    -- Background catch-up work (see Plugin:runBackground) runs in "fast" mode: short timeouts, and after
+    -- the first network failure the rest of that batch is skipped instead of each waiting out its own.
+    if self.fast and self.fast_dead then return nil, "skipped: network not answering" end
     local res, err = perform_request({
         url = url,
         method = method or "GET",
@@ -169,10 +172,13 @@ function UchiyomiAPI:request(path, method, body, opts)
         -- run synchronously on the UI thread, and a minute of it is
         -- indistinguishable from a crash. File and page downloads pass their
         -- own, much longer, timeouts (download_book, download_page).
-        timeout = opts.timeout or 10,
-        total_timeout = opts.total_timeout or 25,
+        timeout = opts.timeout or (self.fast and 4 or 10),
+        total_timeout = opts.total_timeout or (self.fast and 8 or 25),
     })
-    if not res then return nil, err end
+    if not res then
+        if self.fast then self.fast_dead = true end
+        return nil, err
+    end
     if res.code < 200 or res.code >= 300 then
         local msg = "Server returned status " .. tostring(res.code)
         if res.body and res.body ~= "" then
