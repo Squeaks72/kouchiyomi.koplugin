@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0 — 2026-10-14
+- **Double pages a source cut in two are joined.** Some sources deliver a spread as two portrait images. The
+  server now spots these by the picture running across the seam and offers them as one wide page; the
+  plugin shows them as one screen (so the rotation setting turns the Kobo for them). Works when streaming
+  and when downloading a chapter. Turn it off under Settings > "Join spreads a source cut in two".
+  Caveat: in a downloaded chapter the joined pair is one file, so the reader's page number after it is one
+  less than the web reader's (progress can land one page early). Streaming keeps the server's numbering.
+
 ## 0.14.0 — 2026-10-13
 - **A skipped chapter number is said before you cross it.** When the next chapter the server names is more
   than one ahead (44-99 missing between 43 and 100), the chapter-end dialog now reads "Chapters 44-99 are

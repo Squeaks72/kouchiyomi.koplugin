@@ -105,6 +105,7 @@ function UchiyomiAPI:new(base_url, opts)
     o.username = opts.username
     o.opds_token = opts.opds_token
     o.show_adult = opts.show_adult and true or false
+    o.settings = opts.settings
     return o
 end
 
@@ -645,6 +646,16 @@ function UchiyomiAPI:download_page(book_id, n)
     return self:request_raw("/api/v1/books/" .. escape(book_id) .. "/pages/" .. tostring(n), { accept = "image/*", timeout = 30 })
 end
 
+--- Page n and the one after it as a single wide image: a spread the source cut in two (uchi/spreads).
+function UchiyomiAPI:download_spread(book_id, n)
+    return self:request_raw("/img/lib/books/" .. escape(book_id) .. "/spread/" .. tostring(n), { accept = "image/*", timeout = 45 })
+end
+
+--- Whether chapters should be fetched with their cut spreads joined (setting `join_split_spreads`, default on).
+function UchiyomiAPI:joinsSpreads()
+    return not (self.settings and self.settings.join_split_spreads == false)
+end
+
 function UchiyomiAPI:page_url(book_id, n)
     return self.base_url .. "/api/v1/books/" .. escape(book_id) .. "/pages/" .. tostring(n)
 end
@@ -679,7 +690,17 @@ end
 --- Download a chapter to dest_path. Uses OPDS when configured, otherwise
 -- assembles a CBZ from the individual pages. progress_cb(done, total) optional.
 function UchiyomiAPI:download_book(book_id, dest_path, progress_cb)
-    if self:hasOpds() then
+    -- A chapter with a spread the source cut in two cannot be the file the server holds: the pair has to become one
+    -- wide image for KOReader to turn the screen for it. That is rare, so only those are assembled page by page; the
+    -- page list is the server's own answer, and a failure to get it leaves the ordinary download to do its job.
+    local listed, joins
+    if self:joinsSpreads() then
+        listed = self:get_book_pages(book_id)
+        local Spreads = require("uchi/spreads")
+        local set, count = Spreads.joins(listed)
+        if count > 0 then joins = set end
+    end
+    if self:hasOpds() and not joins then
         local ok, err, code = self:download_book_opds(book_id, dest_path)
         if ok then return true end
         logger.warn("kouchiyomi: OPDS download failed, falling back to page assembly:", tostring(err))
@@ -688,22 +709,35 @@ function UchiyomiAPI:download_book(book_id, dest_path, progress_cb)
             return nil, "OPDS token rejected (" .. tostring(code) .. "). Re-run server setup."
         end
     end
-    local pages, err = self:get_book_pages(book_id)
+    local pages, err = listed, nil
+    if type(pages) ~= "table" then pages, err = self:get_book_pages(book_id) end
     if type(pages) ~= "table" then return nil, err or "Could not list pages" end
     if #pages == 0 then return nil, "Chapter has no pages" end
     local Zip = require("uchi/zip")
     local zw, zerr = Zip.open(dest_path)
     if not zw then return nil, zerr end
-    for i, p in ipairs(pages) do
+    local written, i = 0, 1
+    while i <= #pages do
+        local p = pages[i]
         local n = p.number or i
-        local bytes, perr = self:download_page(book_id, n)
+        local bytes, perr, ext, step = nil, nil, nil, 1
+        if joins and joins[n] then
+            -- both pages become one image; if the join cannot be fetched the two pages go in as they are
+            bytes = self:download_spread(book_id, n)
+            if type(bytes) == "string" and #bytes > 0 then ext, step = "jpg", 2 else bytes = nil end
+        end
+        if not bytes then
+            bytes, perr = self:download_page(book_id, n)
+            ext = (p.fileName and p.fileName:match("%.(%w+)$")) or "jpg"
+        end
         if not bytes then
             zw:abort()
             return nil, "Page " .. tostring(n) .. ": " .. tostring(perr)
         end
-        local ext = (p.fileName and p.fileName:match("%.(%w+)$")) or "jpg"
-        zw:add(string.format("%04d.%s", n, ext), bytes)
-        if progress_cb then progress_cb(i, #pages) end
+        written = written + 1
+        zw:add(string.format("%04d.%s", written, ext), bytes)
+        i = i + step
+        if progress_cb then progress_cb(math.min(i - 1, #pages), #pages) end
     end
     return zw:close()
 end

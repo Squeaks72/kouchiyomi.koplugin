@@ -119,6 +119,8 @@ local DEFAULT_SETTINGS = {
     -- stamps on a portrait screen. With this on, the page's own shape turns the
     -- screen (and turns it back on the next single page) -- see uchi/rotation.
     auto_rotate_wide_pages = true,
+    -- A spread a source served as two pages is fetched as one wide image (uchi/spreads).
+    join_split_spreads = true,
     -- Which landscape a spread turns to: "follow" is KOReader's own rule (the
     -- one its built-in toggle uses, keeping which way up the device is held),
     -- or force it. Which way puts a Kobo's buttons under your thumb depends on
@@ -439,6 +441,7 @@ function Plugin:initAPI()
             username = s.username,
             opds_token = s.opds_token,
             show_adult = s.show_adult,
+            settings = s,
         })
     else
         self.api = nil

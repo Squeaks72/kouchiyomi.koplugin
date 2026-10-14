@@ -348,6 +348,17 @@ function Menu:readingMenu()
             end,
         },
         {
+            text = _("Join spreads a source cut in two"),
+            help_text = _("Some sources serve a double-page spread as two ordinary pages. Uchiyomi finds them by checking that the picture runs across the seam, and with this on the two pages become one wide image, which the screen then turns for. Streamed chapters show the pair as one screen; downloaded ones are assembled page by page, so progress counts a joined pair as one page and can be off by a page against the web reader in a chapter that has one."),
+            checked_func = function() return p.settings.join_split_spreads ~= false end,
+            keep_menu_open = true,
+            callback = function(tm)
+                p.settings.join_split_spreads = not (p.settings.join_split_spreads ~= false)
+                p:saveSettings()
+                if tm then tm:updateItems() end
+            end,
+        },
+        {
             text_func = function()
                 local labels = { follow = _("as KOReader does"), cw = _("clockwise"), ccw = _("counter-clockwise") }
                 -- Unrecognised reads as "follow", the same as the rule itself does.

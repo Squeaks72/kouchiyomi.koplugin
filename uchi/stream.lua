@@ -20,6 +20,7 @@ local ImageViewer = require("ui/widget/imageviewer")
 local RenderImage = require("ui/renderimage")
 local Labels = require("uchi/labels")
 local ChapterEnd = require("uchi/chapter_end")
+local Spreads = require("uchi/spreads")
 
 local Stream = {}
 
@@ -44,11 +45,22 @@ end
 -- ImageViewer silently ignores "next" on the last image; that is the end of
 -- the chapter for us.
 function StreamViewer:onShowNextImage()
-    if self._images_list_cur >= self._images_list_nb then
+    local joins = self.joins
+    if not joins then
+        if self._images_list_cur >= self._images_list_nb then
+            if self.stream then self.stream:onEndReached(self) end
+            return true
+        end
+        return ImageViewer.onShowNextImage(self)
+    end
+    -- A spread the source cut in two is one screen: turning forward skips its second page.
+    local to = Spreads.next_shown(joins, self._images_list_cur)
+    if to > self._images_list_nb then
         if self.stream then self.stream:onEndReached(self) end
         return true
     end
-    return ImageViewer.onShowNextImage(self)
+    self:switchToImageNum(to)
+    return true
 end
 
 -- The same at the other end: ImageViewer ignores "previous" on the first
@@ -56,6 +68,10 @@ end
 function StreamViewer:onShowPrevImage()
     if self._images_list_cur <= 1 then
         if self.stream then self.stream:onStartReached(self) end
+        return true
+    end
+    if self.joins then
+        self:switchToImageNum(Spreads.prev_shown(self.joins, self._images_list_cur))
         return true
     end
     return ImageViewer.onShowPrevImage(self)
@@ -67,13 +83,15 @@ function StreamViewer:onClose()
 end
 
 --- Fetch and decode page n (1-based) as a blitbuffer, with a small cache.
-function Stream:_pageBB(book_id, n, cache)
+function Stream:_pageBB(book_id, n, cache, joins)
     if cache[n] then
         local bb = cache[n]
         cache[n] = nil
         return bb
     end
-    local data = self.plugin.api:download_page(book_id, n)
+    local data
+    if joins and joins[n] then data = self.plugin.api:download_spread(book_id, n) end
+    if not (type(data) == "string" and #data > 0) then data = self.plugin.api:download_page(book_id, n) end
     if type(data) == "string" and #data > 0 then
         local bb = RenderImage:renderImageData(data, #data, false)
         if bb then return bb end
@@ -89,7 +107,9 @@ function Stream:_prefetch(viewer, n)
     UIManager:scheduleIn(0.2, function()
         viewer._prefetching = false
         if viewer._closed or viewer._cache[n] then return end
-        local data = self.plugin.api:download_page(viewer.book_id, n)
+        local data
+        if viewer.joins and viewer.joins[n] then data = self.plugin.api:download_spread(viewer.book_id, n) end
+        if not (type(data) == "string" and #data > 0) then data = self.plugin.api:download_page(viewer.book_id, n) end
         if type(data) == "string" and #data > 0 then
             local bb = RenderImage:renderImageData(data, #data, false)
             if bb then
@@ -105,7 +125,7 @@ function Stream:_prefetch(viewer, n)
 end
 
 function Stream:onPageShown(viewer, n)
-    self:_prefetch(viewer, n + 1)
+    self:_prefetch(viewer, viewer.joins and Spreads.next_shown(viewer.joins, n) or n + 1)
     self:_schedulePush(viewer, n)
 end
 
@@ -122,7 +142,8 @@ end
 function Stream:_push(viewer, n)
     if not n or not self.plugin.api or not self.plugin.settings.sync_progress then return end
     if n == viewer._last_pushed then return end
-    local completed = n >= viewer.page_count
+    -- the last screen can be a joined pair, whose first page is not the last page
+    local completed = (viewer.joins and Spreads.next_shown(viewer.joins, n) or n + 1) > viewer.page_count
     local ok, err = self.plugin.api:put_progress(viewer.book_id, n, completed, false)
     if ok then
         viewer._last_pushed = n
@@ -327,9 +348,16 @@ function Stream:open(book, start_page)
         count = (fresh_book.media and tonumber(fresh_book.media.pagesCount)) or count
         book = fresh_book
     end
-    if count == 0 then
+    local joins
+    if count == 0 or self.plugin.api:joinsSpreads() then
         local pages = self.plugin.api:get_book_pages(book.id)
-        if type(pages) == "table" then count = #pages end
+        if type(pages) == "table" then
+            if count == 0 then count = #pages end
+            if self.plugin.api:joinsSpreads() then
+                local set, n = Spreads.joins(pages)
+                if n > 0 then joins = set end
+            end
+        end
     end
     UIManager:close(msg)
     if count == 0 then
@@ -347,6 +375,7 @@ function Stream:open(book, start_page)
         end
     end
     start = math.max(1, math.min(start or 1, count))
+    if joins then start = Spreads.snap(joins, start) end
 
     local cache = {}
     local page_table = { image_disposable = true }
@@ -354,7 +383,7 @@ function Stream:open(book, start_page)
     local viewer
     setmetatable(page_table, { __index = function(_, key)
         if type(key) ~= "number" then return RenderImage:renderImageFile("resources/koreader.png", false) end
-        return stream:_pageBB(book.id, key, cache)
+        return stream:_pageBB(book.id, key, cache, joins)
     end })
 
     viewer = StreamViewer:new{
@@ -368,6 +397,7 @@ function Stream:open(book, start_page)
         image_disposable = false,
         images_list_nb = count,
         _cache = cache,
+        joins = joins,
     }
     UIManager:show(viewer)
     if start > 1 then
