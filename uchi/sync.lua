@@ -1547,7 +1547,9 @@ function Sync:promptNextChapter(ui, show_native)
     -- 4. Auto-advance: no dialog when the way forward is clear. The dialog
     --    is kept for the cases that need a decision (offline and missing,
     --    unknown, last chapter, server error).
-    if self.plugin.settings.auto_advance ~= false and next_book then
+    -- A gap in the numbering is said, never driven through: the dialog names it.
+    local gap = next_book and require("uchi/gap").between(current, next_book)
+    if self.plugin.settings.auto_advance ~= false and next_book and not gap then
         if state == "ready" then
             leave_for(local_path)
             return true

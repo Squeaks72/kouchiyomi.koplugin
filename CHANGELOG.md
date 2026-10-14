@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0 — 2026-10-13
+- **A skipped chapter number is said before you cross it.** When the next chapter the server names is more
+  than one ahead (44-99 missing between 43 and 100), the chapter-end dialog now reads "Chapters 44-99 are
+  missing here. This continues at chapter 100." and auto-advance stops at that dialog instead of opening
+  the chapter unasked. Both the downloaded-file and the streaming paths do it.
+
 ## 0.13.0 -- 2026-10-08
 - **Choose which lists the browser's home screen shows.** Settings > Home screen lists ticks any of your
   Uchiyomi lists (and Favourites). Each ticked list appears under "Keep reading" as the next unread chapter

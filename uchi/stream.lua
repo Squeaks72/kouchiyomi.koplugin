@@ -252,7 +252,9 @@ function Stream:promptNext(book, viewer)
     end
 
     -- Auto-advance: keep going without asking when the next chapter is at hand.
-    if self.plugin.settings.auto_advance ~= false and nxt then
+    -- A gap in the numbering is said, never driven through: the dialog names it.
+    local gap = nxt and require("uchi/gap").between(book, nxt)
+    if self.plugin.settings.auto_advance ~= false and nxt and not gap then
         if state == "ready" then
             leave_viewer()
             open_file(local_path)

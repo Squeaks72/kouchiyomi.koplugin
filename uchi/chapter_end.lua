@@ -8,6 +8,7 @@
 local UIManager = require("ui/uimanager")
 local Labels = require("uchi/labels")
 local Cache = require("uchi/cache")
+local Gap = require("uchi/gap")
 
 local ChapterEnd = {}
 
@@ -49,6 +50,8 @@ function ChapterEnd.show(opts)
         table.insert(lines, T(_("Next: %1 (%2)"), Labels.chapter(opts.next_book), state_text[opts.state] or tostring(opts.state)))
         local sub = Labels.subtitle(opts.next_book, series)
         if sub then table.insert(lines, sub) end
+        local gap = Gap.text(opts.current, opts.next_book, _, T)
+        if gap then table.insert(lines, gap) end
     end
     if opts.note and opts.note ~= "" then table.insert(lines, opts.note) end
 
