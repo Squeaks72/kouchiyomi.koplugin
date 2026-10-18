@@ -70,6 +70,13 @@ Davis), reworked for Uchiyomi's native API.
   mode only; Settings ▸ Reading turns it off. Gestures: "Uchiyomi: portrait /
   landscape" and "Uchiyomi: rotate for wide pages on/off" (KOReader's own
   "Toggle orientation" is understood too).
+- **Two pages side by side in landscape**: turn the device on its side and the
+  page you are on is shown with the next one beside it, like an open book —
+  for reading double pages even when the source did not scan them as one.
+  Works downloaded and streamed. Right-to-left puts the page you are on on the
+  right; a page turn moves past both, and a real (wide) spread keeps the screen
+  to itself. A screen the plugin turned for a spread stays single; this is for
+  a screen you turned yourself. Settings ▸ Reading turns it off.
 - **18+ stays off the device**: 18+ series are streamed, never downloaded, so no
   file of one can appear in the file manager, the cover browser, KOReader's
   history or "open last book on startup" — and they are not listed on the home

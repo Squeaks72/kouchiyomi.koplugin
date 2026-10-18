@@ -16,13 +16,19 @@
 
 local logger = require("logger")
 local UIManager = require("ui/uimanager")
+local Screen = require("device").screen
 local ImageViewer = require("ui/widget/imageviewer")
 local RenderImage = require("ui/renderimage")
 local Labels = require("uchi/labels")
 local ChapterEnd = require("uchi/chapter_end")
 local Spreads = require("uchi/spreads")
+local Dual = require("uchi/dualpage")
 
 local Stream = {}
+
+-- The viewer on screen, if any. On the class, not an instance: the rotation event arrives at whichever
+-- plugin instance the UI it was sent to owns, which need not be the one that opened the viewer.
+Stream.current_viewer = nil
 
 function Stream:new(plugin)
     local o = { plugin = plugin }
@@ -45,20 +51,14 @@ end
 -- ImageViewer silently ignores "next" on the last image; that is the end of
 -- the chapter for us.
 function StreamViewer:onShowNextImage()
-    local joins = self.joins
-    if not joins then
-        if self._images_list_cur >= self._images_list_nb then
-            if self.stream then self.stream:onEndReached(self) end
-            return true
-        end
-        return ImageViewer.onShowNextImage(self)
-    end
-    -- A spread the source cut in two is one screen: turning forward skips its second page.
-    local to = Spreads.next_shown(joins, self._images_list_cur)
+    -- A screen may stand for two pages (a joined spread, or a landscape pair): turning forward skips the lot.
+    local st = self.st
+    local to = self._images_list_cur + ((st and st.consumed[self._images_list_cur]) or 1)
     if to > self._images_list_nb then
         if self.stream then self.stream:onEndReached(self) end
         return true
     end
+    if st then st.trail[to] = self._images_list_cur end
     self:switchToImageNum(to)
     return true
 end
@@ -70,11 +70,14 @@ function StreamViewer:onShowPrevImage()
         if self.stream then self.stream:onStartReached(self) end
         return true
     end
-    if self.joins then
-        self:switchToImageNum(Spreads.prev_shown(self.joins, self._images_list_cur))
-        return true
-    end
-    return ImageViewer.onShowPrevImage(self)
+    self:switchToImageNum(Stream.backTarget(self.st, self._images_list_cur, self.stream and self.stream:_dualOn()))
+    return true
+end
+
+--- The screen turned, or the two-page setting changed: a landscape screen shows two pages where a portrait one
+-- shows one, and ImageViewer cannot be told its screen changed.
+function StreamViewer:refreshScreen()
+    if self.stream then self.stream:rebuild(self) end
 end
 
 function StreamViewer:onClose()
@@ -100,33 +103,115 @@ function Stream:_pageBB(book_id, n, cache, joins)
     return RenderImage:renderImageFile("resources/koreader.png", false)
 end
 
-function Stream:_prefetch(viewer, n)
+--- Is the two-page view on for the screen as it is now?
+function Stream:_dualOn()
+    return self.plugin.settings.dual_page_landscape ~= false and Dual.isLandscape()
+end
+
+local function aspect_of(bb)
+    local w, h = bb:getWidth(), bb:getHeight()
+    if w <= 0 or h <= 0 then return nil end
+    return w / h
+end
+
+--- Two pages as one image, side by side. `rtl` puts the first page on the right. Both inputs are consumed.
+function Stream.compose(first, second, rtl)
+    local Blitbuffer = require("ffi/blitbuffer")
+    local left, right = first, second
+    if rtl then left, right = second, first end
+    local w = left:getWidth() + right:getWidth()
+    local h = math.max(left:getHeight(), right:getHeight())
+    local kind = left:getType() == right:getType() and left:getType() or Blitbuffer.TYPE_BBRGB32
+    local out = Blitbuffer.new(w, h, kind)
+    out:fill(Blitbuffer.COLOR_WHITE)
+    out:blitFrom(left, 0, math.floor((h - left:getHeight()) / 2), 0, 0, left:getWidth(), left:getHeight())
+    out:blitFrom(right, left:getWidth(), math.floor((h - right:getHeight()) / 2), 0, 0, right:getWidth(), right:getHeight())
+    left:free()
+    right:free()
+    return out
+end
+
+--- Which page the reader lands on turning back from `cur`. A joined spread two back is one screen starting
+-- there; otherwise a landscape screen goes back over the pair it came forward over.
+function Stream.backTarget(st, cur, dual)
+    if cur <= 1 then return 1 end
+    local joins = st and st.joins
+    if joins and cur > 2 and joins[cur - 2] then return cur - 2 end
+    if not dual then return cur - 1 end
+    local wide = st and st.wide or {}
+    -- Retrace the way forward went while that still holds (a screen is reached from the one before it).
+    local from = st and st.trail[cur]
+    if from and ((st.consumed[from] or 1) + from ~= cur or from >= cur) then from = nil end
+    return Dual.backTarget(cur, function(p) return wide[p] or (joins and joins[p]) or nil end, from) or 1
+end
+
+--[[
+    The image for the screen that starts at page n: that page alone, or in a landscape it with the page after it
+    beside it. Records in `st` how many pages the screen covers (`consumed`) -- turning forward needs it -- and
+    which pages turned out to be wide, which turning back needs.
+
+    A page that is wide stands alone, and so does the one before it; a joined spread is already one wide image.
+--]]
+function Stream:_screenBB(st, n)
+    local joins = st.joins
+    if not self:_dualOn() or n >= st.count or (joins and (joins[n] or joins[n + 1])) then
+        st.consumed[n] = (joins and joins[n]) and 2 or 1
+        return self:_pageBB(st.book_id, n, st.cache, joins)
+    end
+    local a = self:_pageBB(st.book_id, n, st.cache, joins)
+    st.wide[n] = Dual.isWide(aspect_of(a)) or false
+    if st.wide[n] then
+        st.consumed[n] = 1
+        return a
+    end
+    local b = self:_pageBB(st.book_id, n + 1, st.cache, joins)
+    st.wide[n + 1] = Dual.isWide(aspect_of(b)) or false
+    if st.wide[n + 1] then
+        -- Its own screen next: keep what was fetched so it is not fetched twice.
+        st.cache[n + 1] = b
+        st.consumed[n] = 1
+        return a
+    end
+    st.consumed[n] = 2
+    return Stream.compose(a, b, st.rtl)
+end
+
+function Stream:_prefetch(viewer, n, n2)
+    local want = { [n] = true, [n2 or n] = true }
+    viewer._want = want
     if n < 1 or n > viewer.page_count then return end
-    if viewer._cache[n] or viewer._prefetching then return end
+    if viewer._prefetching then return end
     viewer._prefetching = true
     UIManager:scheduleIn(0.2, function()
         viewer._prefetching = false
-        if viewer._closed or viewer._cache[n] then return end
-        local data
-        if viewer.joins and viewer.joins[n] then data = self.plugin.api:download_spread(viewer.book_id, n) end
-        if not (type(data) == "string" and #data > 0) then data = self.plugin.api:download_page(viewer.book_id, n) end
-        if type(data) == "string" and #data > 0 then
-            local bb = RenderImage:renderImageData(data, #data, false)
-            if bb then
-                -- keep the cache tiny; the reader only ever needs the next page
-                for k, old in pairs(viewer._cache) do
-                    if k ~= n and old.free then old:free() end
-                    viewer._cache[k] = nil
+        if viewer._closed then return end
+        -- keep the cache tiny; the reader only ever needs the next screen's pages
+        for k, old in pairs(viewer._cache) do
+            if not viewer._want[k] then
+                if old.free then old:free() end
+                viewer._cache[k] = nil
+            end
+        end
+        for p in pairs(viewer._want) do
+            if p >= 1 and p <= viewer.page_count and not viewer._cache[p] then
+                local data
+                if viewer.joins and viewer.joins[p] then data = self.plugin.api:download_spread(viewer.book_id, p) end
+                if not (type(data) == "string" and #data > 0) then data = self.plugin.api:download_page(viewer.book_id, p) end
+                if type(data) == "string" and #data > 0 then
+                    local bb = RenderImage:renderImageData(data, #data, false)
+                    if bb then viewer._cache[p] = bb end
                 end
-                viewer._cache[n] = bb
             end
         end
     end)
 end
 
-function Stream:onPageShown(viewer, n)
-    self:_prefetch(viewer, viewer.joins and Spreads.next_shown(viewer.joins, n) or n + 1)
-    self:_schedulePush(viewer, n)
+function Stream:onPageShown(viewer, n, no_push)
+    local st = viewer.st
+    local nxt = n + ((st and st.consumed[n]) or 1)
+    -- On a landscape screen the screen after this one is two pages.
+    self:_prefetch(viewer, nxt, self:_dualOn() and nxt + 1 <= viewer.page_count and nxt + 1 or nil)
+    if not no_push then self:_schedulePush(viewer, n) end
 end
 
 function Stream:_schedulePush(viewer, n)
@@ -142,8 +227,8 @@ end
 function Stream:_push(viewer, n)
     if not n or not self.plugin.api or not self.plugin.settings.sync_progress then return end
     if n == viewer._last_pushed then return end
-    -- the last screen can be a joined pair, whose first page is not the last page
-    local completed = (viewer.joins and Spreads.next_shown(viewer.joins, n) or n + 1) > viewer.page_count
+    -- the last screen can be a joined or landscape pair, whose first page is not the last page
+    local completed = n + ((viewer.st and viewer.st.consumed[n]) or 1) > viewer.page_count
     local ok, err = self.plugin.api:put_progress(viewer.book_id, n, completed, false)
     if ok then
         viewer._last_pushed = n
@@ -215,6 +300,7 @@ end
 
 function Stream:onViewerClose(viewer)
     viewer._closed = true
+    if Stream.current_viewer == viewer then Stream.current_viewer = nil end
     -- The sleep screen goes back to the reader's own as the chapter leaves it.
     pcall(function() require("uchi/sleepscreen").disarm(self.plugin) end)
     if viewer._push_fn then UIManager:unschedule(viewer._push_fn); viewer._push_fn = nil end
@@ -224,7 +310,8 @@ function Stream:onViewerClose(viewer)
         if bb.free then pcall(bb.free, bb) end
         viewer._cache[k] = nil
     end
-    if n >= viewer.page_count and viewer.page_count > 0 and not viewer._end_prompted then
+    if n + ((viewer.st and viewer.st.consumed[n]) or 1) > viewer.page_count and viewer.page_count > 0
+        and not viewer._end_prompted then
         UIManager:nextTick(function() self:promptNext(viewer.book) end)
     end
 end
@@ -377,34 +464,87 @@ function Stream:open(book, start_page)
     start = math.max(1, math.min(start or 1, count))
     if joins then start = Spreads.snap(joins, start) end
 
-    local cache = {}
+    -- What the screens built so far covered. A screen is a page, a joined spread, or a landscape pair, so
+    -- turning needs to know how far each one reached; `wide` is what turning back needs.
+    local st = {
+        book_id = book.id, count = count, cache = {}, joins = joins,
+        consumed = {}, wide = {}, trail = {},
+        rtl = self.plugin:wantInverseReadingOrder() == true,
+    }
+    local viewer = self:_show(book, st, start)
+    self:onPageShown(viewer, start)
+end
+
+--- Put a viewer on screen at page `start`, built from the state `st` (which outlives any one viewer).
+function Stream:_show(book, st, start)
     local page_table = { image_disposable = true }
     local stream = self
-    local viewer
+    -- ImageViewer asks for image 1 while it is built; the page the reader is on is what it should get.
+    st.first = start
     setmetatable(page_table, { __index = function(_, key)
         if type(key) ~= "number" then return RenderImage:renderImageFile("resources/koreader.png", false) end
-        return stream:_pageBB(book.id, key, cache, joins)
+        if key == 1 and st.first then key = st.first; st.first = nil end
+        return stream:_screenBB(st, key)
     end })
-
-    viewer = StreamViewer:new{
+    local viewer = StreamViewer:new{
         stream = self,
         book = book,
         book_id = book.id,
-        page_count = count,
+        page_count = st.count,
         image = page_table,
         fullscreen = true,
         with_title_bar = false,
         image_disposable = false,
-        images_list_nb = count,
-        _cache = cache,
-        joins = joins,
+        images_list_nb = st.count,
+        _cache = st.cache,
+        joins = st.joins,
+        st = st,
     }
+    st.first = nil
+    viewer._images_list_cur = start
+    viewer:update()
+    Stream.current_viewer = viewer
     UIManager:show(viewer)
-    if start > 1 then
-        viewer:switchToImageNum(start)
-    else
-        self:onPageShown(viewer, 1)
+    return viewer
+end
+
+--[[
+    Build the viewer again for the page it is on, over the same state. ImageViewer fixes its layout when it is
+    made, so a screen that has turned (and with it how many pages one screen holds) is a new viewer rather
+    than an old one patched; pages already fetched are kept.
+--]]
+function Stream:rebuild(old)
+    if old._closed then return end
+    local n = old._images_list_cur
+    if old._push_fn then UIManager:unschedule(old._push_fn); old._push_fn = nil end
+    local viewer = self:_show(old.book, old.st, n)
+    viewer._last_pushed = old._last_pushed
+    viewer._end_prompted = old._end_prompted
+    -- Closed straight through the UIManager: the viewer's own close is the reader leaving the chapter.
+    old._closed = true
+    UIManager:close(old)
+    self:onPageShown(viewer, n)
+end
+
+--- The screen turned (the plugin hears every rotation). The viewer redraws once the new orientation is in
+-- place: the event is heard before the screen has actually turned.
+function Stream.onRotation()
+    local viewer = Stream.current_viewer
+    if not viewer or viewer._closed then return end
+    if viewer._rotate_fn then UIManager:unschedule(viewer._rotate_fn) end
+    viewer._rotate_fn = function()
+        viewer._rotate_fn = nil
+        if viewer._closed then return end
+        local ok, err = pcall(viewer.refreshScreen, viewer)
+        if not ok then logger.warn("kouchiyomi: stream rotate failed:", tostring(err)) end
     end
+    UIManager:scheduleIn(0.25, viewer._rotate_fn)
+end
+
+--- The setting changed: redraw what is on screen.
+function Stream.refreshCurrent()
+    local viewer = Stream.current_viewer
+    if viewer and not viewer._closed then pcall(viewer.refreshScreen, viewer) end
 end
 
 return Stream

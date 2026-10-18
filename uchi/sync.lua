@@ -661,7 +661,8 @@ function Sync:pushProgressForDocument(ui)
     if not book_id then return end
     local cur = current_page(ui)
     local total = page_count(ui)
-    local completed = cur >= total
+    -- The last page may be the second of a pair on a landscape screen: it has been seen.
+    local completed = cur + require("uchi/dualpage").extraPages(self.plugin) >= total
     if not completed and self:isDocMarkedComplete(ui) then
         cur = total
         completed = true

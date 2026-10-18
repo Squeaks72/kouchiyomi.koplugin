@@ -348,6 +348,19 @@ function Menu:readingMenu()
             end,
         },
         {
+            text = _("Two pages side by side in landscape"),
+            help_text = _("Turn the device on its side and the page you are on is shown with the next page beside it, like an open book -- for reading double pages even when the source did not scan them as one. Right-to-left series put the page you are on on the right. A page turn moves past both; turning back from a pair lands two pages earlier, and a spread that is already wide always has the screen to itself. Works for downloaded and streamed chapters; a screen turned by 'Turn the screen for double-page spreads' stays single, since the next single page turns it back. Page mode only."),
+            checked_func = function() return p.settings.dual_page_landscape ~= false end,
+            keep_menu_open = true,
+            callback = function(tm)
+                p.settings.dual_page_landscape = not (p.settings.dual_page_landscape ~= false)
+                p:saveSettings()
+                -- Repaint what is on screen with the new setting.
+                pcall(function() require("uchi/dualpage").refresh(p) end)
+                if tm then tm:updateItems() end
+            end,
+        },
+        {
             text = _("Join spreads a source cut in two"),
             help_text = _("Some sources serve a double-page spread as two ordinary pages. Uchiyomi finds them by checking that the picture runs across the seam, and with this on the two pages become one wide image, which the screen then turns for. Streamed chapters show the pair as one screen; downloaded ones are assembled page by page, so progress counts a joined pair as one page and can be off by a page against the web reader in a chapter that has one."),
             checked_func = function() return p.settings.join_split_spreads ~= false end,

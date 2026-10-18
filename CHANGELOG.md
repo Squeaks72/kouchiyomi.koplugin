@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.16.0 — 2026-10-17
+- **Two pages side by side in landscape.** Turn the device on its side and the page you are on is shown with the
+  next page beside it, like an open book -- so double pages read as double pages even when the source never
+  scanned them as one. Works for downloaded chapters and for streaming. Right-to-left reading puts the page
+  you are on on the right.
+  - A page turn moves past both pages; turning back from a pair lands where you came from (two pages earlier).
+    The pairing is anchored on the page you are on, not on odd/even, so if the cover pairs badly turn back one
+    page and it lines up the other way.
+  - A page that is already wide (a spread) always has the screen to itself, and so does the page before it.
+  - A screen the plugin turned for a spread ("Turn the screen for double-page spreads") stays single, because the
+    next ordinary page turns it back; pairing is for a screen you turned yourself.
+  - Pages cropped to their content stay cropped. Progress counts the second page of the last pair as seen, so
+    finishing a chapter on a pair still marks it read.
+  - Turn it off under Settings > "Two pages side by side in landscape".
+- Streaming: the viewer is now rebuilt when the screen turns. ImageViewer fixes its layout when it is made, so a
+  streamed chapter left on screen through a rotation used to keep the old orientation's layout.
+
 ## 0.15.0 — 2026-10-14
 - **Double pages a source cut in two are joined.** Some sources deliver a spread as two portrait images. The
   server now spots these by the picture running across the seam and offers them as one wide page; the

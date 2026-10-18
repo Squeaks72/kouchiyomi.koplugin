@@ -121,6 +121,8 @@ local DEFAULT_SETTINGS = {
     auto_rotate_wide_pages = true,
     -- A spread a source served as two pages is fetched as one wide image (uchi/spreads).
     join_split_spreads = true,
+    -- On a landscape screen the page you are on is shown with the one after it beside it (uchi/dualpage).
+    dual_page_landscape = true,
     -- Which landscape a spread turns to: "follow" is KOReader's own rule (the
     -- one its built-in toggle uses, keeping which way up the device is held),
     -- or force it. Which way puts a Kobo's buttons under your thumb depends on
@@ -496,6 +498,9 @@ end
 --- Every rotation passes through here on its way to ReaderView. No return
 -- value: the event has further to go.
 function Plugin:onSetRotationMode(mode)
+    -- A streamed chapter is not a document, so there is no reader to be "active": its viewer redraws itself
+    -- (a landscape screen shows two pages), and has to hear about the turn from here.
+    pcall(function() require("uchi/stream").onRotation() end)
     if not self.is_active then return end
     pcall(Rotation.observe, self, mode)
 end
@@ -675,6 +680,9 @@ function Plugin:onReaderReady()
 
     -- Back past the first page opens the previous chapter (see below).
     self:_installPrevChapterHook(ui)
+    -- Landscape shows two pages side by side; installed after the hook above so a turn it does not
+    -- handle (back from the first page) still reaches the previous-chapter logic.
+    pcall(require("uchi/dualpage").install, self, ui)
 
     -- Something asked to open this document at a given page: a bookmark tapped
     -- in the browser, a turn back into the previous chapter (pending_goto_last:
