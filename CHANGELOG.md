@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0 — 2026-10-19
+- **A manga is one entry on the SimpleUI home screen, not one per chapter.** SimpleUI builds Currently reading,
+  Recent books and Cover deck straight from KOReader's history, which lists every chapter you open as a book --
+  so a few chapters of one series took every slot. Now only the chapter you read last stays in the history for
+  each series (the one "Continue" should open). Chapter files, reading positions and bookmarks are untouched;
+  older chapters just stop being listed. Runs when a chapter closes and once at start-up, so it also tidies what
+  was already there. KOReader's own History view gets the same one-per-series treatment. Turn it off under
+  Settings > "One home-screen entry per series".
+
 ## 0.16.0 — 2026-10-17
 - **Two pages side by side in landscape.** Turn the device on its side and the page you are on is shown with the
   next page beside it, like an open book -- so double pages read as double pages even when the source never

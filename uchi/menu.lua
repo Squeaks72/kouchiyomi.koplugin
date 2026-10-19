@@ -361,6 +361,18 @@ function Menu:readingMenu()
             end,
         },
         {
+            text = _("One home-screen entry per series"),
+            help_text = _("KOReader's history lists every chapter you open as its own book, so a home screen built from it (SimpleUI's Currently reading, Recent books and Cover deck) fills up with chapters of one manga. With this on, only the chapter you read last stays in the history for each series. Chapter files, reading positions and bookmarks are not touched -- the older chapters just stop being listed. Applies when a chapter is closed; KOReader's own History view is tidied the same way."),
+            checked_func = function() return p.settings.one_history_entry_per_series ~= false end,
+            keep_menu_open = true,
+            callback = function(tm)
+                p.settings.one_history_entry_per_series = not (p.settings.one_history_entry_per_series ~= false)
+                p:saveSettings()
+                pcall(require("uchi/history").collapse, p)
+                if tm then tm:updateItems() end
+            end,
+        },
+        {
             text = _("Join spreads a source cut in two"),
             help_text = _("Some sources serve a double-page spread as two ordinary pages. Uchiyomi finds them by checking that the picture runs across the seam, and with this on the two pages become one wide image, which the screen then turns for. Streamed chapters show the pair as one screen; downloaded ones are assembled page by page, so progress counts a joined pair as one page and can be off by a page against the web reader in a chapter that has one."),
             checked_func = function() return p.settings.join_split_spreads ~= false end,

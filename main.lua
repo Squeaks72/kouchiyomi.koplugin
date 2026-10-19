@@ -123,6 +123,9 @@ local DEFAULT_SETTINGS = {
     join_split_spreads = true,
     -- On a landscape screen the page you are on is shown with the one after it beside it (uchi/dualpage).
     dual_page_landscape = true,
+    -- Only the latest chapter read of a series stays in KOReader's history, so a home screen built from it
+    -- (SimpleUI) lists a manga once instead of once per chapter (uchi/history).
+    one_history_entry_per_series = true,
     -- Which landscape a spread turns to: "follow" is KOReader's own rule (the
     -- one its built-in toggle uses, keeping which way up the device is held),
     -- or force it. Which way puts a Kobo's buttons under your thumb depends on
@@ -192,6 +195,7 @@ function Plugin:init()
     -- single table lookup.
     -- A sleep screen still held by a session that was killed mid-chapter.
     pcall(SleepScreen.restoreIfStale, self)
+    pcall(require("uchi/history").collapse, self)
     if not self.settings.adult_sweep_done then
         UIManager:scheduleIn(8, function()
             if NetworkMgr:isOnline() then pcall(self.sync.sweepAdultDownloadsOnce, self.sync) end
@@ -1012,6 +1016,8 @@ function Plugin:onCloseDocument()
     -- one cannot write its copy of the table over the new one's.
     self:flushSettings()
     self:_push()
+    -- Chapter just read is hist[1]; fold the series' older entries into it.
+    pcall(require("uchi/history").collapse, self)
     self:_removeFooterIndicator()
     if self.current_book_id and self.ui then
         pcall(function() self.bookmarks:syncOpenDocument(self.ui, false) end)
