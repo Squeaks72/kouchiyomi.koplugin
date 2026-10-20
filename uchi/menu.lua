@@ -452,11 +452,14 @@ function Menu:syncMenu()
     local p = self.plugin
     local labels = { prompt = _("ask"), silent = _("jump silently"), disable = _("ignore") }
     local order = { "silent", "prompt", "disable" }
-    local function cycle(key)
+    local function cycle(key, choices)
+        choices = choices or order
         local cur = p.settings[key] or "prompt"
-        for i, v in ipairs(order) do
-            if v == cur then p.settings[key] = order[i % #order + 1]; break end
+        local nxt = choices[1]
+        for i, v in ipairs(choices) do
+            if v == cur then nxt = choices[i % #choices + 1]; break end
         end
+        p.settings[key] = nxt
         p:saveSettings()
     end
     return {
@@ -478,9 +481,9 @@ function Menu:syncMenu()
             callback = function(tm) cycle("sync_forward"); if tm then tm:updateItems() end end,
         },
         {
-            text_func = function() return T(_("When Uchiyomi is behind: %1"), labels[p.settings.sync_backward or "prompt"]) end,
+            text_func = function() return T(_("When Uchiyomi is behind: %1"), labels[p.settings.sync_backward == "silent" and "silent" or "disable"]) end,
             keep_menu_open = true,
-            callback = function(tm) cycle("sync_backward"); if tm then tm:updateItems() end end,
+            callback = function(tm) if p.settings.sync_backward ~= "silent" then p.settings.sync_backward = "disable" end; cycle("sync_backward", { "disable", "silent" }); if tm then tm:updateItems() end end,
         },
         {
             text_func = function() return T(_("When Uchiyomi is on a later chapter: %1"), labels[p.settings.sync_series_catchup or "prompt"]) end,

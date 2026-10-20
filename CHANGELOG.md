@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.1 — 2026-10-19
+- **No more "Uchiyomi is behind. Go back there?"** Opening a chapter where Uchiyomi's saved page is earlier than yours
+  now leaves you where you are. "When Uchiyomi is behind" is ignore by default (a saved "ask" counts as ignore) and
+  can still be set to jump silently.
+
 ## 0.18.0 — 2026-10-19
 - **Opt-in "Show 18+ in search and lists"**, the plugin's version of Uchiyomi's own Show 18+ switch (Settings, next to
   "Let me open 18+ libraries"). Off by default, and then nothing changes. On, search, the home rails, updates,

@@ -355,8 +355,10 @@ function Sync:pullProgress(ui, is_manual, prefetched)
             strategy = self.plugin.settings.sync_forward or "silent"
             text = T(_("Uchiyomi is further along (page %1 of %2). Jump there?"), remote, total)
         else
-            strategy = self.plugin.settings.sync_backward or "prompt"
-            text = T(_("Uchiyomi is behind (page %1 of %2). Go back there?"), remote, total)
+            -- Never asks: being behind the server's page is usually just a phone that has not caught up. A
+            -- saved "prompt" from before this was removed counts as "ignore".
+            strategy = self.plugin.settings.sync_backward
+            if strategy ~= "silent" then strategy = "disable" end
         end
         if strategy == "disable" then return true end
         local Event = require("ui/event")

@@ -137,7 +137,7 @@ local DEFAULT_SETTINGS = {
     sync_progress = true,
     sync_bookmarks = true,
     sync_forward = "silent",         -- prompt | silent | disable
-    sync_backward = "prompt",
+    sync_backward = "disable",       -- silent | disable (never asks)
     -- Uchiyomi is on a LATER CHAPTER of the series than the one being opened
     -- (read on the phone, say). Asking is the default: jumping chapters closes
     -- the document that was just deliberately opened, which is too big a move
