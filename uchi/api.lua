@@ -91,7 +91,7 @@ local function escape(str)
 end
 
 --- Create a connector.
--- opts = { api_token=, username=, opds_token=, show_adult=, session_token= }
+-- opts = { api_token=, username=, opds_token=, show_adult=, reveal_all=, session_token= }
 function UchiyomiAPI:new(base_url, opts)
     local o = setmetatable({}, self)
     opts = opts or {}
@@ -105,6 +105,7 @@ function UchiyomiAPI:new(base_url, opts)
     o.username = opts.username
     o.opds_token = opts.opds_token
     o.show_adult = opts.show_adult and true or false
+    o.reveal_all = opts.reveal_all and true or false
     o.settings = opts.settings
     return o
 end
@@ -150,6 +151,17 @@ function UchiyomiAPI:withAdult(path)
     if not self.show_adult then return path end
     if path:find("%?") then return path .. "&adult=1" end
     return path .. "?adult=1"
+end
+
+--[[
+    A listing that follows the "Show 18+" setting (`reveal_all`), the way Uchiyomi's own switch does: with it on the
+    request carries `adult=1` and the server includes 18+ in search, the home rails, updates, favourites, history,
+    collections and bookmarks. Off (the default) it is the path untouched, and none of those ever list 18+.
+    Chapters of an 18+ series are still streamed, never downloaded, whatever this says.
+--]]
+function UchiyomiAPI:listing(path)
+    if not self.reveal_all or path:find("adult=1", 1, true) then return path end
+    return (path:find("%?") and (path .. "&adult=1")) or (path .. "?adult=1")
 end
 
 --- JSON request. Returns decoded table (or true for empty 2xx), else nil, err, code.
@@ -321,6 +333,7 @@ function UchiyomiAPI:search_series(query, page, size, condition, sort, reveal)
     if condition then body.condition = condition end
     if sort then body.sort = sort end
     local path = reveal and self:withAdult("/api/series/search") or "/api/series/search"
+    path = self:listing(path)
     return self:request(path, "POST", body)
 end
 
@@ -603,34 +616,34 @@ function UchiyomiAPI:put_progress(book_id, page, completed, silent, at_ms)
 end
 
 function UchiyomiAPI:get_history(limit)
-    return self:request("/api/history?limit=" .. tostring(limit or 50))
+    return self:request(self:listing("/api/history?limit=" .. tostring(limit or 50)))
 end
 
 --- Favourited series with unseen new chapters: { content = { { series=, newCount=, latestAt= } } }
 function UchiyomiAPI:get_updates()
-    return self:request("/api/updates")
+    return self:request(self:listing("/api/updates"))
 end
 
 --- The home screen: { onDeck = { book... }, updated = { series... }, new = { series... } }.
 -- onDeck is Uchiyomi's "Keep reading" rail: per recently read series, the
 -- chapter you are part-way through or, if you finished it, the next unread one.
 function UchiyomiAPI:get_home()
-    return self:request("/api/home")
+    return self:request(self:listing("/api/home"))
 end
 
 --- The caller's own lists: { content = { { id=, name=, item_count= } } }. The built-in "favorites" list
 -- is not among them, but answers to the same id below.
 function UchiyomiAPI:get_collections()
-    return self:request("/api/collections")
+    return self:request(self:listing("/api/collections"))
 end
 
 --- One list with its series in the list's own order: { id=, name=, items = { series... } }.
 function UchiyomiAPI:get_collection(id)
-    return self:request("/api/collections/" .. escape(id))
+    return self:request(self:listing("/api/collections/" .. escape(id)))
 end
 
 function UchiyomiAPI:get_favorites()
-    return self:request("/api/favorites")
+    return self:request(self:listing("/api/favorites"))
 end
 
 function UchiyomiAPI:add_favorite(series_id)
@@ -644,7 +657,7 @@ end
 --- All of the caller's page bookmarks:
 -- { content = { { book_id=, series_id=, page=, note=, created_at=, book_title=, number=, series_title= } } }
 function UchiyomiAPI:get_bookmarks()
-    return self:request("/api/bookmarks")
+    return self:request(self:listing("/api/bookmarks"))
 end
 
 function UchiyomiAPI:add_bookmark(book_id, page)

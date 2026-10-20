@@ -55,6 +55,8 @@ local DEFAULT_SETTINGS = {
     -- on every listing (home rails, updates, favourites, history, bookmarks,
     -- plain search), which Uchiyomi's `browsable()` then keeps out of them.
     show_adult = false,
+    -- Uchiyomi's own "Show 18+": include 18+ in search and every list, not just a library marked 18+. Opt-in.
+    show_adult_listings = false,
     -- 18+ chapters are streamed and never written to disk: a file is what turns
     -- up in the file manager, the cover browser, KOReader's history and "open
     -- last book on startup", so not having one is the only guarantee that does
@@ -447,6 +449,7 @@ function Plugin:initAPI()
             username = s.username,
             opds_token = s.opds_token,
             show_adult = s.show_adult,
+            reveal_all = s.show_adult_listings,
             settings = s,
         })
     else

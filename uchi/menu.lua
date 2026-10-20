@@ -143,13 +143,25 @@ function Menu:serverMenu()
         },
         {
             text = _("Let me open 18+ libraries"),
-            help_text = _("18+ series are never listed on the home screen, in updates, favourites, history, bookmarks or a plain search -- the plugin simply does not ask the server to include them. This is about the one place it does ask: opening a library marked 18+ from the Libraries list. With it off, those libraries list nothing at all."),
+            help_text = _("Unless 'Show 18+ in search and lists' is on, 18+ series are never listed on the home screen, in updates, favourites, history, bookmarks or a plain search -- the plugin simply does not ask the server to include them. This is about the one place it asks regardless: opening a library marked 18+ from the Libraries list. With it off, those libraries list nothing at all."),
             checked_func = function() return p.settings.show_adult == true end,
             keep_menu_open = true,
             callback = function()
                 p.settings.show_adult = not p.settings.show_adult
                 p:saveSettings()
                 p:initAPI()
+            end,
+        },
+        {
+            text = _("Show 18+ in search and lists"),
+            help_text = _("Like Uchiyomi's own Show 18+ switch: with it on, search, the home rails, updates, favourites, history, collections and bookmarks include 18+ series. Off by default, and then none of those ever list one. It does not change how 18+ chapters are read: they are still streamed rather than downloaded when 'Stream 18+ chapters' is on, and they stay off the sleep screen."),
+            checked_func = function() return p.settings.show_adult_listings == true end,
+            keep_menu_open = true,
+            callback = function(tm)
+                p.settings.show_adult_listings = not p.settings.show_adult_listings
+                p:saveSettings()
+                p:initAPI()
+                if tm then tm:updateItems() end
             end,
         },
         {

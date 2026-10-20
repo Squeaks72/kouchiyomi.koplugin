@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.0 — 2026-10-19
+- **Opt-in "Show 18+ in search and lists"**, the plugin's version of Uchiyomi's own Show 18+ switch (Settings, next to
+  "Let me open 18+ libraries"). Off by default, and then nothing changes. On, search, the home rails, updates,
+  favourites, history, collections and bookmarks include 18+ series, and an 18+ library lists without the other
+  switch. Reading is untouched: 18+ chapters are still streamed rather than downloaded (when that setting is on) and
+  stay off the sleep screen and out of KOReader's history.
+
 ## 0.17.1 — 2026-10-19
 Checked against Uchiyomi v0.87.0 (the running server): every route, search, the 18+ switch and the progress call.
 - **Joining spreads works again.** The server stopped serving a stitched image (its own reader now lays the two pages
