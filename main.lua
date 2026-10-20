@@ -57,6 +57,9 @@ local DEFAULT_SETTINGS = {
     show_adult = false,
     -- Uchiyomi's own "Show 18+": include 18+ in search and every list, not just a library marked 18+. Opt-in.
     show_adult_listings = false,
+    -- Limit the browser's catalogue views to one list ("favorites" or a list id; nil = every series). uchi/scope.
+    browse_scope = nil,
+    browse_scope_name = nil,
     -- 18+ chapters are streamed and never written to disk: a file is what turns
     -- up in the file manager, the cover browser, KOReader's history and "open
     -- last book on startup", so not having one is the only guarantee that does

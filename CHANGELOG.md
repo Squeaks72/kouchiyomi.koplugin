@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0 — 2026-10-20
+- **Browse only the series of one list.** Settings > "Only browse series in a list": pick Favourites or any of your
+  Uchiyomi lists, and All series, Recently updated, a library's series and search show only the series in it instead of
+  everything the server holds. The list is read once (cached ten minutes) and those views are cut from it here --
+  filtered by library or search text, ordered by title or last update, paged as usual -- so the server is not asked for
+  the whole catalogue at all. Titles say which list they are limited to, and a line at the top of the browser turns the
+  limit off (and on again) for the session. Favourites, bookmarks, new chapters and the home screen are unchanged;
+  "No limit" in the same menu restores everything. A smart list is capped by the server at 200 series.
+
 ## 0.18.1 — 2026-10-19
 - **No more "Uchiyomi is behind. Go back there?"** Opening a chapter where Uchiyomi's saved page is earlier than yours
   now leaves you where you are. "When Uchiyomi is behind" is ignore by default (a saved "ask" counts as ignore) and

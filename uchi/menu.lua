@@ -96,6 +96,15 @@ function Menu:createMainMenu()
     table.insert(items, { text = _("Sync"), keep_menu_open = true, sub_item_table_func = function() return self:syncMenu() end })
     table.insert(items, { text = _("Downloads"), keep_menu_open = true, sub_item_table_func = function() return self:downloadsMenu() end })
     table.insert(items, { text = _("Home screen lists"), keep_menu_open = true, sub_item_table_func = function() return self:homeListsMenu() end })
+    table.insert(items, {
+        text_func = function()
+            local id = p.settings.browse_scope
+            return T(_("Only browse series in a list: %1"), (id and id ~= "") and (p.settings.browse_scope_name or id) or _("no limit"))
+        end,
+        help_text = _("Trims what the browser loads: All series, Recently updated, a library's series and search show only the series in the list you pick -- Favourites or any of your Uchiyomi lists -- instead of everything the server holds. Favourites, bookmarks, new chapters and the home screen are unchanged. A line at the top of the browser turns the limit off for the session."),
+        keep_menu_open = true,
+        sub_item_table_func = function() return self:browseScopeMenu() end,
+    })
     table.insert(items, { text = _("Layout"), keep_menu_open = true, sub_item_table_func = function() return self:layoutMenu() end })
     table.insert(items, { text = _("Plugin update"), keep_menu_open = true, sub_item_table_func = function() return self:updateMenu() end })
     table.insert(items, {
@@ -604,6 +613,48 @@ function Menu:homeListsMenu()
         text = _("Shown on the Uchiyomi home screen, in the order ticked:"),
         enabled_func = function() return false end,
     })
+    return items
+end
+
+--- Which list the browser's catalogue views are limited to (one, or none).
+function Menu:browseScopeMenu()
+    local _ = self.plugin.i18n._
+    local p = self.plugin
+    local names = p.settings.home_list_names
+    if type(names) ~= "table" then names = {}; p.settings.home_list_names = names end
+    names.favorites = names.favorites or _("Favourites")
+    local available = { "favorites" }
+    local NetworkMgr = require("ui/network/manager")
+    if p.api and NetworkMgr:isOnline() then
+        local res = p.api:get_collections()
+        if type(res) == "table" then
+            for _i, c in ipairs(res.content or res) do
+                if c.id then names[c.id] = c.name or names[c.id] or c.id; table.insert(available, c.id) end
+            end
+        end
+    else
+        for id in pairs(names) do if id ~= "favorites" then table.insert(available, id) end end
+    end
+    local function choose(id)
+        p.settings.browse_scope = id
+        p.settings.browse_scope_name = id and (names[id] or id) or nil
+        p._scope_off, p._scope_cache = nil, nil
+        p:saveSettings()
+    end
+    local items = { {
+        text = _("No limit (every series)"),
+        checked_func = function() return not (p.settings.browse_scope and p.settings.browse_scope ~= "") end,
+        keep_menu_open = true,
+        callback = function(tm) choose(nil); if tm then tm:updateItems() end end,
+    } }
+    for _i, id in ipairs(available) do
+        table.insert(items, {
+            text = names[id] or id,
+            checked_func = function() return p.settings.browse_scope == id end,
+            keep_menu_open = true,
+            callback = function(tm) choose(id); if tm then tm:updateItems() end end,
+        })
+    end
     return items
 end
 

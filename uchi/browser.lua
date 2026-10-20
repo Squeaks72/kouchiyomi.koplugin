@@ -10,6 +10,7 @@ local UchiGridMenu = require("uchi/grid_menu")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
 local Labels = require("uchi/labels")
+local Scope = require("uchi/scope")
 
 local _base_list_recalc = UchiListMenu._recalculateDimen
 local _base_list_update = UchiListMenu.updateItems
@@ -482,6 +483,20 @@ function UchiBrowser:getHomeItemTable()
             note(_("Could not load Keep reading: ") .. tostring(data))
         end
         header(_("Browse"))
+        do
+            local _sid, sname = self:_scope()
+            if sname then
+                table.insert(items, { text = T(_("Only showing series in: %1  (tap to show all)"), sname), callback = function()
+                    p._scope_off = true
+                    self:_reloadHome(false)
+                end })
+            elseif p.settings.browse_scope and p.settings.browse_scope ~= "" then
+                table.insert(items, { text = T(_("Showing all series  (tap to limit to %1)"), p.settings.browse_scope_name or "?"), callback = function()
+                    p._scope_off = nil
+                    self:_reloadHome(false)
+                end })
+            end
+        end
         table.insert(items, { text = _("New chapters (favourites)"), callback = function() self:showUpdates() end })
         table.insert(items, { text = _("Favourites"),             callback = function() self:showFavorites() end })
         table.insert(items, { text = _("Bookmarks"),              callback = function() self:showBookmarks() end })
@@ -505,11 +520,57 @@ end
 -- Catalog views
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- Browse scope: only the series of one list (setting `browse_scope`, see uchi/scope)
+-- ---------------------------------------------------------------------------
+
+--- The list the catalogue views are limited to: id, name. nil when there is none, or it is switched off for now.
+function UchiBrowser:_scope()
+    local p = self.plugin
+    local id = p.settings.browse_scope
+    if type(id) ~= "string" or id == "" or p._scope_off then return nil end
+    return id, p.settings.browse_scope_name or id
+end
+
+--- The scoped list's series, from the server at most every ten minutes. nil, err when it cannot be read.
+function UchiBrowser:_scopeItems(reveal)
+    local p = self.plugin
+    local id = self:_scope()
+    local key = tostring(id) .. (reveal and ":18" or "")
+    local c = p._scope_cache
+    if c and c.key == key and os.time() - c.ts < 600 then return c.items end
+    local res, err
+    if id == Scope.FAVORITES then res, err = p.api:get_favorites(reveal) else res, err = p.api:get_collection(id, reveal) end
+    if type(res) ~= "table" then return nil, err or "list not available" end
+    local items = res.items or res.content or res
+    p._scope_cache = { key = key, ts = os.time(), items = items }
+    return items
+end
+
+--- `plain` is a catalogue view's fetch function; with a scope set it is replaced by one cut from the list.
+-- opts: library_id, query, sort, reveal.
+function UchiBrowser:_scoped(plain, opts)
+    if not self:_scope() then return plain end
+    return function(page, size)
+        local items, err = self:_scopeItems(opts.reveal)
+        if not items then return nil, err end
+        return Scope.page(Scope.sort(Scope.filter(items, opts), opts.sort), page, size)
+    end
+end
+
+--- A view's title, naming the list when it is limited to one.
+function UchiBrowser:_scopedTitle(title)
+    local _id, name = self:_scope()
+    if name then return title .. " (" .. name .. ")" end
+    return title
+end
+
 function UchiBrowser:showAllSeries(sort, title)
     if not self.plugin.api then return end
     self:_loadCatalog{
-        title = title,
-        fetch_func = function(page, size) return self.plugin.api:search_series(nil, page, size, nil, sort) end,
+        title = self:_scopedTitle(title),
+        fetch_func = self:_scoped(function(page, size) return self.plugin.api:search_series(nil, page, size, nil, sort) end,
+            { sort = sort }),
         item_builder = function(s) return series_item(self, s) end,
         cover_type = "series",
         empty_text = self.plugin.i18n._("No series found"),
@@ -534,13 +595,13 @@ end
 function UchiBrowser:showSeriesInLibrary(lib)
     if not self.plugin.api then return end
     self:_loadCatalog{
-        title = lib.name or lib.id,
-        fetch_func = function(page, size)
+        title = self:_scopedTitle(lib.name or lib.id),
+        fetch_func = self:_scoped(function(page, size)
             -- The one listing that asks to be shown 18+: the reader has opened a
             -- library marked 18+, which is as deliberate as going looking gets.
             return self.plugin.api:search_series(nil, page, size,
                 { libraryId = { operator = "is", value = lib.id } }, "title,asc", lib.adult == true)
-        end,
+        end, { library_id = lib.id, sort = "title,asc", reveal = lib.adult == true and self.plugin.settings.show_adult == true }),
         item_builder = function(s) return series_item(self, s) end,
         cover_type = "series",
         empty_text = self.plugin.i18n._("No series in this library"),
@@ -671,8 +732,9 @@ function UchiBrowser:promptSearch()
                 if q == "" then return end
                 self._last_search = q
                 self:_loadCatalog{
-                    title = _("Search: ") .. q,
-                    fetch_func = function(page, size) return self.plugin.api:search_series(q, page, size) end,
+                    title = self:_scopedTitle(_("Search: ") .. q),
+                    fetch_func = self:_scoped(function(page, size) return self.plugin.api:search_series(q, page, size) end,
+                        { query = q }),
                     item_builder = function(s) return series_item(self, s) end,
                     cover_type = "series",
                     empty_text = _("No series matched"),

@@ -15,6 +15,8 @@ cd /path/to/kouchiyomi.koplugin && lua5.1 tests/adult.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/stats.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/history.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/listing.lua
+cd /path/to/kouchiyomi.koplugin && lua5.1 tests/scope.lua
+cd /path/to/kouchiyomi.koplugin && lua5.1 tests/scope_browser.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/sleepscreen.lua
 ```
 

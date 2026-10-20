@@ -638,12 +638,14 @@ function UchiyomiAPI:get_collections()
 end
 
 --- One list with its series in the list's own order: { id=, name=, items = { series... } }.
-function UchiyomiAPI:get_collection(id)
-    return self:request(self:listing("/api/collections/" .. escape(id)))
+-- `reveal` asks for 18+ as well (see withAdult), for a list read on behalf of an 18+ library the reader opened.
+function UchiyomiAPI:get_collection(id, reveal)
+    local path = "/api/collections/" .. escape(id)
+    return self:request(self:listing(reveal and self:withAdult(path) or path))
 end
 
-function UchiyomiAPI:get_favorites()
-    return self:request(self:listing("/api/favorites"))
+function UchiyomiAPI:get_favorites(reveal)
+    return self:request(self:listing(reveal and self:withAdult("/api/favorites") or "/api/favorites"))
 end
 
 function UchiyomiAPI:add_favorite(series_id)
