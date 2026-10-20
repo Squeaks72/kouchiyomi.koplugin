@@ -621,7 +621,8 @@ function Sync:flushOfflineProgress(is_manual)
             buf[book_id] = nil
             superseded = superseded + 1
         else
-            local ok, err = self.plugin.api:put_progress(book_id, entry.page, entry.completed, false)
+            local ok, err = self.plugin.api:put_progress(book_id, entry.page, entry.completed, false,
+                tonumber(entry.ts) and entry.ts * 1000 or nil)
             if ok then
                 buf[book_id] = nil
                 flushed = flushed + 1

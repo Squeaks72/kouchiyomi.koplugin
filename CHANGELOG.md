@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.17.1 — 2026-10-19
+Checked against Uchiyomi v0.87.0 (the running server): every route, search, the 18+ switch and the progress call.
+- **Joining spreads works again.** The server stopped serving a stitched image (its own reader now lays the two pages
+  side by side) and only flags a pair when the page list is asked with `?spreads=1`, so since that change no pair was
+  ever found. The plugin now asks, waits a few seconds if the server says it is still measuring the chapter
+  (`x-spreads: pending`; otherwise the chapter simply opens without joins this once), and stitches the pair itself --
+  into a JPEG, with the page on the correct side for the direction the server names. Downloads and streaming both.
+- A progress update that waited offline is replayed with the time it happened, so the server no longer takes a stale
+  page for "now" and lets it count toward today's streak and reading stats.
+- Checked and unchanged: search still hides 18+ unless asked (a library flagged 18+ is the one place the plugin asks),
+  `/api/libraries` still says which libraries are 18+, listings, history, favourites and bookmarks still leave 18+ out
+  on their own. One limit remains: a series is 18+ to the server through its library, its own age rating, an adult
+  genre or a source rated Adult only, and the last two are not visible to a client -- such a series never appears in
+  any list the plugin asks for, so it cannot be opened from one, but the plugin could not tell if it met one by id.
+
 ## 0.17.0 — 2026-10-19
 - **A manga is one entry on the SimpleUI home screen, not one per chapter.** SimpleUI builds Currently reading,
   Recent books and Cover deck straight from KOReader's history, which lists every chapter you open as a book --

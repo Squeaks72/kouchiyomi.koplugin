@@ -93,7 +93,7 @@ function Stream:_pageBB(book_id, n, cache, joins)
         return bb
     end
     local data
-    if joins and joins[n] then data = self.plugin.api:download_spread(book_id, n) end
+    if joins and joins[n] then data = self.plugin.api:download_spread(book_id, n, joins[n]) end
     if not (type(data) == "string" and #data > 0) then data = self.plugin.api:download_page(book_id, n) end
     if type(data) == "string" and #data > 0 then
         local bb = RenderImage:renderImageData(data, #data, false)
@@ -195,7 +195,7 @@ function Stream:_prefetch(viewer, n, n2)
         for p in pairs(viewer._want) do
             if p >= 1 and p <= viewer.page_count and not viewer._cache[p] then
                 local data
-                if viewer.joins and viewer.joins[p] then data = self.plugin.api:download_spread(viewer.book_id, p) end
+                if viewer.joins and viewer.joins[p] then data = self.plugin.api:download_spread(viewer.book_id, p, viewer.joins[p]) end
                 if not (type(data) == "string" and #data > 0) then data = self.plugin.api:download_page(viewer.book_id, p) end
                 if type(data) == "string" and #data > 0 then
                     local bb = RenderImage:renderImageData(data, #data, false)
@@ -437,7 +437,7 @@ function Stream:open(book, start_page)
     end
     local joins
     if count == 0 or self.plugin.api:joinsSpreads() then
-        local pages = self.plugin.api:get_book_pages(book.id)
+        local pages = self.plugin.api:get_book_pages(book.id, { spreads = self.plugin.api:joinsSpreads() })
         if type(pages) == "table" then
             if count == 0 then count = #pages end
             if self.plugin.api:joinsSpreads() then

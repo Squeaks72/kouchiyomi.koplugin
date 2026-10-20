@@ -197,7 +197,8 @@ function UchiyomiAPI:request(path, method, body, opts)
     if not ok then
         return nil, "JSON parsing failed: " .. tostring(parsed)
     end
-    return parsed
+    -- The response headers ride along as a fourth value for the few callers that read one.
+    return parsed, nil, nil, res.headers
 end
 
 --- Binary GET (images, files). Returns body string, or nil, err.
@@ -387,8 +388,30 @@ function UchiyomiAPI:get_book(book_id)
     return self:request("/api/books/" .. escape(book_id))
 end
 
-function UchiyomiAPI:get_book_pages(book_id)
-    return self:request("/api/books/" .. escape(book_id) .. "/pages")
+--[[
+    The page list of a chapter.
+
+    With `opts.spreads` it asks for `?spreads=1`, which makes the server flag the first page of each pair a source cut
+    from one spread (`join`). That is measured in the background the first time anyone asks, and the answer to that
+    first ask is the plain list with `x-spreads: pending`. `opts.wait` is how many times to ask again, a couple of
+    seconds apart (only where a pause is harmless -- a download); 0 takes the plain list. An older server ignores the
+    parameter and answers the plain list.
+--]]
+function UchiyomiAPI:get_book_pages(book_id, opts)
+    local path = "/api/books/" .. escape(book_id) .. "/pages"
+    if not (opts and opts.spreads) then return self:request(path) end
+    local waits = tonumber(opts.wait) or 0
+    local pages, err, code, headers
+    for attempt = 0, waits do
+        pages, err, code, headers = self:request(path .. "?spreads=1")
+        local state = headers and headers["x-spreads"]
+        if not pages or state ~= "pending" then break end
+        if attempt < waits then
+            local ok_s, socket = pcall(require, "socket")
+            if ok_s and socket.sleep then socket.sleep(2) end
+        end
+    end
+    return pages, err, code
 end
 
 --- The chapter after this one, or nil (404) when it is the last.
@@ -570,9 +593,12 @@ end
 
 --- Record progress. silent=true writes exactly what is given (may move
 -- backwards) without touching history; otherwise the server only moves forward.
-function UchiyomiAPI:put_progress(book_id, page, completed, silent)
+-- `at_ms` says when the event really happened (client ms) -- for a replay out of the offline buffer, which the server
+-- would otherwise take for "now" and let a stale page overwrite where the reader has since got to.
+function UchiyomiAPI:put_progress(book_id, page, completed, silent, at_ms)
     local body = { page = page, completed = completed and true or false }
     if silent then body.silent = true end
+    if at_ms then body.at = math.floor(at_ms) end
     return self:request("/api/books/" .. escape(book_id) .. "/progress", "PUT", body)
 end
 
@@ -646,9 +672,17 @@ function UchiyomiAPI:download_page(book_id, n)
     return self:request_raw("/api/v1/books/" .. escape(book_id) .. "/pages/" .. tostring(n), { accept = "image/*", timeout = 30 })
 end
 
---- Page n and the one after it as a single wide image: a spread the source cut in two (uchi/spreads).
-function UchiyomiAPI:download_spread(book_id, n)
-    return self:request_raw("/img/lib/books/" .. escape(book_id) .. "/spread/" .. tostring(n), { accept = "image/*", timeout = 45 })
+--- Page n and the one after it as a single wide image: a spread the source cut in two. The server has no route for
+-- this (its reader joins the pair on screen), so both pages are fetched and stitched here (uchi/spreads).
+-- `dir` is the page list's `join`. Returns bytes, extension.
+function UchiyomiAPI:download_spread(book_id, n, dir)
+    local first = self:download_page(book_id, n)
+    local second = first and self:download_page(book_id, n + 1)
+    if not (type(first) == "string" and type(second) == "string") then return nil, "page unavailable" end
+    local ok, bytes, ext = pcall(require("uchi/spreads").stitch, first, second, dir)
+    if ok and bytes then return bytes, ext end
+    logger.warn("kouchiyomi: could not join pages", n, "and", n + 1, tostring(ok and ext or bytes))
+    return nil, "could not join"
 end
 
 --- Whether chapters should be fetched with their cut spreads joined (setting `join_split_spreads`, default on).
@@ -695,7 +729,7 @@ function UchiyomiAPI:download_book(book_id, dest_path, progress_cb)
     -- page list is the server's own answer, and a failure to get it leaves the ordinary download to do its job.
     local listed, joins
     if self:joinsSpreads() then
-        listed = self:get_book_pages(book_id)
+        listed = self:get_book_pages(book_id, { spreads = true, wait = 2 })
         local Spreads = require("uchi/spreads")
         local set, count = Spreads.joins(listed)
         if count > 0 then joins = set end
@@ -723,8 +757,9 @@ function UchiyomiAPI:download_book(book_id, dest_path, progress_cb)
         local bytes, perr, ext, step = nil, nil, nil, 1
         if joins and joins[n] then
             -- both pages become one image; if the join cannot be fetched the two pages go in as they are
-            bytes = self:download_spread(book_id, n)
-            if type(bytes) == "string" and #bytes > 0 then ext, step = "jpg", 2 else bytes = nil end
+            local joined_ext
+            bytes, joined_ext = self:download_spread(book_id, n, joins[n])
+            if type(bytes) == "string" and #bytes > 0 then ext, step = joined_ext or "jpg", 2 else bytes = nil end
         end
         if not bytes then
             bytes, perr = self:download_page(book_id, n)
