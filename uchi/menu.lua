@@ -18,6 +18,11 @@ local function cycle_label(_, value, labels)
     return labels[value] or labels.__default
 end
 
+--- The settings tree as a sheet of its own (see uchi/settings_sheet); `open_index` opens that row's submenu.
+function Menu:showSheet(open_index)
+    return require("uchi/settings_sheet").open(self.plugin, open_index)
+end
+
 function Menu:createMainMenu()
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
@@ -115,6 +120,14 @@ function Menu:createMainMenu()
             UIManager:show(TextViewer:new{ title = _("Uchiyomi diagnostics"), text = p:diagnosticsText() })
         end,
     })
+    -- A caller that hands these rows to a plain ui/widget/menu.Menu (BookOrbit's home screen does) would otherwise
+    -- tap a submenu row and get nothing: that widget ignores `sub_item_table_func`, and falls back to `callback`.
+    -- TouchMenu looks at `sub_item_table_func` first and never reaches it, so for Tools > Uchiyomi this is inert.
+    for index, item in ipairs(items) do
+        if item.sub_item_table_func and not item.callback then
+            item.callback = function() require("uchi/settings_sheet").open(p, index) end
+        end
+    end
     return items
 end
 

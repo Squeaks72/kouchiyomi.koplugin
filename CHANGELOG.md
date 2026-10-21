@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.2 — 2026-10-21
+- **Settings opened from the browser or from BookOrbit's home screen now work like Tools > Uchiyomi.** Both handed the
+  settings tree to KOReader's plain list widget, which knows nothing of how that tree is built: it never opens a
+  submenu that is built when tapped (so Server / Reading / Sync / Downloads / ... did nothing and then closed the
+  sheet -- 0.21.1 patched that for the browser only), closes after every toggle, and shows no ticks. The sliders button
+  in the browser now opens a real KOReader touch menu (`uchi/settings_sheet.lua`), and `menu:showSheet()` is there for
+  anything else that wants the settings. A caller that still feeds the rows to a plain list -- BookOrbit's manga widget
+  does -- gets its tapped submenu row opened in that same sheet instead of nothing.
+
 ## 0.21.1 — 2026-10-21
 - **Fixed: every settings submenu was unreachable from the new BookOrbit-styled browser/home screen.** The settings
   sheet opened from there is a plain stock menu, which (unlike the TouchMenu the regular Tools > Uchiyomi entry uses)
