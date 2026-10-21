@@ -667,6 +667,17 @@ function Menu:layoutMenu()
     local p = self.plugin
     return {
         {
+            text = _("BookOrbit-style settings"),
+            help_text = _("When the BookOrbit plugin is installed, these settings are drawn in its style: grouped cards, switches and radio dots. Off (or without BookOrbit) they use KOReader's own touch menu. Takes effect the next time settings are opened."),
+            enabled_func = function() return require("uchi/ui_theme").available end,
+            checked_func = function() return p.settings.bookorbit_settings_style ~= false end,
+            keep_menu_open = true,
+            callback = function()
+                p.settings.bookorbit_settings_style = not (p.settings.bookorbit_settings_style ~= false)
+                p:saveSettings()
+            end,
+        },
+        {
             text_func = function() return p.settings.view_mode == "grid" and _("Default view: grid") or _("Default view: list") end,
             keep_menu_open = true,
             callback = function(tm) p.settings.view_mode = p.settings.view_mode == "grid" and "list" or "grid"; p:saveSettings(); if tm then tm:updateItems() end end,

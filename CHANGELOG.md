@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.22.0 — 2026-10-21
+- **Settings in BookOrbit's style.** With BookOrbit installed, the settings (from the browser's sliders button and
+  from BookOrbit's manga widget; Tools > Uchiyomi keeps KOReader's own menu) are now a BookOrbit page: a header with Back and the version, rows grouped into outlined cards under small headings, switches for on/off
+  options, radio dots for pick-one lists (open mode, page turning, the list the browser is limited to ...), a value on
+  the right of rows like "Server" or "Storage cap", chevrons for submenus, and an info button where a setting has
+  explanatory text. Long lists page with arrows or a swipe. It draws the same tree as before, so every setting and
+  behaviour is unchanged; without BookOrbit, or with Layout > "BookOrbit-style settings" off, the plain touch menu from
+  0.21.2 is used.
+
 ## 0.21.2 — 2026-10-21
 - **Settings opened from the browser or from BookOrbit's home screen now work like Tools > Uchiyomi.** Both handed the
   settings tree to KOReader's plain list widget, which knows nothing of how that tree is built: it never opens a
