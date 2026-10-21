@@ -598,6 +598,24 @@ function BoardMenu:boardOpenSettings()
         title = gettext("Uchiyomi"),
         item_table = plugin.menu:createMainMenu(),
         close_callback = function() UIManager:close(menu) end,
+        -- createMainMenu()'s top-level rows (Server/Reading/Sync/...) are
+        -- built for KOReader's TouchMenu, which resolves a lazy
+        -- item.sub_item_table_func on tap. The stock ui/widget/menu.Menu
+        -- used here only ever looks at item.sub_item_table (never calling
+        -- sub_item_table_func) -- so every submenu row fell into Menu's
+        -- leaf branch: no callback, so nothing happened, and then
+        -- close_callback fired anyway (Menu has no keep_menu_open guard),
+        -- closing the whole settings sheet on any submenu tap. Resolve it
+        -- here the same way TouchMenu does -- at tap time, not eagerly for
+        -- every row up front -- then fall back to the stock handling.
+        onMenuSelect = function(self, item)
+            if item.sub_item_table == nil and item.sub_item_table_func then
+                table.insert(self.item_table_stack, self.item_table)
+                self:switchItemTable(item.text, item.sub_item_table_func())
+                return true
+            end
+            return Menu.onMenuSelect(self, item)
+        end,
     }
     UIManager:show(menu)
 end

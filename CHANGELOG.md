@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.1 — 2026-10-21
+- **Fixed: every settings submenu was unreachable from the new BookOrbit-styled browser/home screen.** The settings
+  sheet opened from there is a plain stock menu, which (unlike the TouchMenu the regular Tools > Uchiyomi entry uses)
+  never resolves a lazily-built submenu on tap -- so tapping Server/Reading/Sync/Downloads/Home screen lists/Layout/
+  Plugin update did nothing and then closed the whole sheet. Settings via Tools > Uchiyomi was never affected.
+
 ## 0.21.0 — 2026-10-21
 - **A BookOrbit-styled browser and home screen, when BookOrbit is installed.** The Uchiyomi browser and chapter lists
   are drawn with BookOrbit's own primitives instead of stock KOReader widgets: a home screen with a search bar, Keep
