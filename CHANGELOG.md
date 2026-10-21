@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.1 — 2026-10-21
+- **No setting is cut off with "…" any more.** Checked by walking every settings page at three screen widths (1264, 1072
+  and 758 px) and logging each piece of text the widget had to shorten: a long value (the repository, the tokens) now
+  sits on a second line under its label instead of beside it, and the long names were reworded, with the detail moved
+  to the info button: "OPDS token: not set", "Read ahead: 1 chapter(s)", "Delete chapters once marked read",
+  "Reconcile downloads when Wi-Fi connects", "Sync count in the reader footer", "GitHub token: none".
+
 ## 0.22.0 — 2026-10-21
 - **Settings in BookOrbit's style.** With BookOrbit installed, the settings (from the browser's sliders button and
   from BookOrbit's manga widget; Tools > Uchiyomi keeps KOReader's own menu) are now a BookOrbit page: a header with Back and the version, rows grouped into outlined cards under small headings, switches for on/off

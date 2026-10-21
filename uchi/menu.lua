@@ -153,8 +153,9 @@ function Menu:serverMenu()
         },
         {
             text_func = function()
-                return (p.settings.opds_token and p.settings.opds_token ~= "") and _("OPDS token: set (fast CBZ downloads)") or _("OPDS token: missing (downloads page by page)")
+                return (p.settings.opds_token and p.settings.opds_token ~= "") and _("OPDS token: set") or _("OPDS token: not set")
             end,
+            help_text = _("With an OPDS token a chapter downloads as one file, which is fast. Without it the chapter is fetched page by page and assembled on the device, which is slower."),
             keep_menu_open = true,
             callback = function(tm) self:promptInput(_("OPDS token"), "opds_token", false, tm) end,
         },
@@ -350,7 +351,7 @@ function Menu:readingMenu()
             text_func = function()
                 local n = tonumber(p.settings.read_ahead) or 1
                 if n <= 0 then return _("Read ahead: off") end
-                return T(_("Read ahead: fetch the next %1 chapter(s) in the background"), n)
+                return T(_("Read ahead: %1 chapter(s)"), n)
             end,
             help_text = _("After a chapter opens, the following chapters are downloaded quietly so the end-of-chapter prompt can open them at once. Counts against the storage cap."),
             keep_menu_open = true,
@@ -423,7 +424,7 @@ function Menu:readingMenu()
             },
         },
         {
-            text = _("Delete a finished chapter once Uchiyomi has it marked read"),
+            text = _("Delete chapters once marked read"),
             help_text = _("When you move on to the next chapter, the finished file is removed after the server confirms it is read. Progress and bookmarks stay on Uchiyomi, so the chapter can always be downloaded again."),
             checked_func = function() return p.settings.delete_read_on_advance ~= false end,
             keep_menu_open = true,
@@ -509,13 +510,15 @@ function Menu:syncMenu()
             callback = function(tm) self:promptInput(_("Pages between progress pushes"), "push_interval", true, tm) end,
         },
         {
-            text = _("Reconcile downloaded chapters when Wi-Fi connects (slow, every 6 h at most)"),
+            text = _("Reconcile downloads when Wi-Fi connects"),
+            help_text = _("Checks the chapters on the device against Uchiyomi when Wi-Fi comes on. It is slow, so it runs at most once every 6 hours."),
             checked_func = function() return p.settings.reconcile_on_connect == true end,
             keep_menu_open = true,
             callback = function() p.settings.reconcile_on_connect = not (p.settings.reconcile_on_connect == true); p:saveSettings() end,
         },
         {
-            text = _("Show pending sync / download count in the reader footer"),
+            text = _("Sync count in the reader footer"),
+            help_text = _("Shows the number of pending sync and download items in the reader footer."),
             checked_func = function() return p.settings.footer_sync_indicator ~= false end,
             keep_menu_open = true,
             callback = function() p.settings.footer_sync_indicator = not (p.settings.footer_sync_indicator ~= false); p:saveSettings() end,
@@ -740,7 +743,8 @@ function Menu:updateMenu()
             callback = function() p.settings.update_auto_check = not (p.settings.update_auto_check ~= false); p:saveSettings() end,
         },
         {
-            text_func = function() return (p.settings.github_token ~= "" ) and _("GitHub token: set") or _("GitHub token: none (needed while the repo is private)") end,
+            text_func = function() return (p.settings.github_token ~= "" ) and _("GitHub token: set") or _("GitHub token: none") end,
+            help_text = _("A GitHub token is needed to update the plugin while its repository is private."),
             keep_menu_open = true,
             callback = function(tm) self:promptInput(_("GitHub token (fine-grained, Contents: read)"), "github_token", false, tm) end,
         },

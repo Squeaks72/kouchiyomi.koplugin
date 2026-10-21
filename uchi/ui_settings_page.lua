@@ -24,18 +24,8 @@ local UIManager = require("ui/uimanager")
 local Theme = require("uchi/ui_theme")
 local Page = {}
 
-local MAX_VALUE_CHARS = 26
-
---- Cut to `n` characters (not bytes), with an ellipsis.
-local function clip(str, n)
-    local count, last = 0, #str
-    for pos in str:gmatch("()[%z\1-\127\194-\244][\128-\191]*") do
-        count = count + 1
-        if count == n + 1 then last = pos - 1; break end
-    end
-    if last >= #str then return str end
-    return str:sub(1, last) .. "…"
-end
+-- A value longer than this goes on a second line under its label instead of beside it, where it would be cut.
+local VALUE_BESIDE_CHARS = 18
 
 --- "Label: value" -> label, value. Only for rows whose text is built by a function, which is where a value lives.
 local function splitValue(str, item)
@@ -119,7 +109,9 @@ local function rowFor(page, block, w, radio_group)
     local enabled = isEnabled(item)
     local label, value = splitValue(labelOf(item), item)
     local o = { label = label, action = enabled and { kind = "item", item = item } or nil }
-    if value then o.value = clip(value, MAX_VALUE_CHARS) end
+    if value then
+        if #value <= VALUE_BESIDE_CHARS then o.value = value else o.sub, o.sublines, o.sub_data = value, 2, true end
+    end
     local submenu = item.sub_item_table ~= nil or item.sub_item_table_func ~= nil
     if submenu then
         o.chevron = true
@@ -134,9 +126,7 @@ local function rowFor(page, block, w, radio_group)
         o.value = o.value
         o.label = label
         o.chevron, o.toggle, o.radio = nil, nil, nil
-        o.sub = nil
-        local row = MenuUI.row(w, { label = label, value = o.value, h = 44 })
-        return row
+        return MenuUI.row(w, { label = label, value = o.value, sub = o.sub, sublines = o.sublines, sub_data = true })
     end
     return MenuUI.row(w, o)
 end
