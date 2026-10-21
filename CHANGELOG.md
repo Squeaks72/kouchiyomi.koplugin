@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.21.0 — 2026-10-21
+- **A BookOrbit-styled browser and home screen, when BookOrbit is installed.** The Uchiyomi browser and chapter lists
+  are drawn with BookOrbit's own primitives instead of stock KOReader widgets: a home screen with a search bar, Keep
+  reading and your chosen lists as horizontally-paged cover shelves, and Browse as a grid of icon tiles, plus grid
+  cards everywhere a thumbnail-and-title-beside-it list row used to be. Entirely optional and detected at runtime
+  (`uchi/ui_theme.lua`) -- without BookOrbit installed, nothing changes: the original stock-widget browser
+  (`uchi/list_menu.lua` / `uchi/grid_menu.lua`) still renders exactly as before. New either way: "Choose home screen
+  lists" reachable directly from Browse (as well as Settings), a settings shortcut in every header of the new
+  browser, and holding a Keep reading card for quick actions -- remove it from the row without marking it read, or
+  mark read (which advances the card to the series' next unread chapter instead of just dropping it). Settings itself
+  is still the stock menu either way; only the browser and home screen are restyled so far.
+
 ## 0.20.0 — 2026-10-21
 - **18+ chapters follow the ordinary open mode again.** The "Stream 18+ chapters, never download them" restriction is
   gone, with the once-after-upgrade sweep that deleted 18+ downloads: an 18+ chapter streams or downloads (and reads
