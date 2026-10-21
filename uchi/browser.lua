@@ -12,10 +12,18 @@ local logger = require("logger")
 local Labels = require("uchi/labels")
 local Scope = require("uchi/scope")
 
-local _base_list_recalc = UchiListMenu._recalculateDimen
-local _base_list_update = UchiListMenu.updateItems
-local _base_grid_recalc = UchiGridMenu._recalculateDimen
-local _base_grid_update = UchiGridMenu.updateItems
+-- When BookOrbit (bookorbit.koplugin) is installed, the browser is drawn
+-- with its primitives instead of these two stock Menu subclasses -- see
+-- uchi/ui_theme.lua and uchi/ui_board_menu.lua. Nothing about the data,
+-- pagination or navigation below this point changes either way; only which
+-- class renders a page of item_table entries does.
+local Theme = require("uchi/ui_theme")
+local BoardMenu = Theme.available and require("uchi/ui_board_menu") or nil
+
+local _base_list_recalc = BoardMenu and BoardMenu._recalculateDimen or UchiListMenu._recalculateDimen
+local _base_list_update = BoardMenu and BoardMenu.updateItems or UchiListMenu.updateItems
+local _base_grid_recalc = BoardMenu and BoardMenu._recalculateDimen or UchiGridMenu._recalculateDimen
+local _base_grid_update = BoardMenu and BoardMenu.updateItems or UchiGridMenu.updateItems
 
 local function hideWidget(w)
     if not w then return end
@@ -43,11 +51,64 @@ local function series_title(series)
     return (series.metadata and series.metadata.title ~= "" and series.metadata.title) or series.name or "?"
 end
 
+-- The title-bar "..." menu's rows: switch grid/list, and -- inside a series
+-- -- filter chapters / series actions. Shared by both the stock title-bar
+-- button below and the board header's own "..." icon, so there is exactly
+-- one copy of this logic regardless of which one is drawing the chrome.
+local function buildActionsMenuButtons(browser, opts)
+    local _ = browser.plugin.i18n._
+    local buttons = {}
+    local covers_on = browser.plugin.settings.show_covers ~= false
+    -- The board renderer always grids covered entries (see
+    -- uchi/ui_board_menu.lua's _gridMode), so this toggle would do nothing
+    -- visible there; only the stock renderer still needs it.
+    if covers_on and not BoardMenu then
+        table.insert(buttons, { {
+            text = browser.view_mode == "grid" and _("Switch to list view") or _("Switch to grid view"),
+            align = "left",
+            callback = function()
+                if browser.menu_dialog then UIManager:close(browser.menu_dialog) end
+                browser:setViewMode(browser.view_mode == "grid" and "list" or "grid")
+            end,
+        } })
+    end
+    if opts and opts.is_series then
+        table.insert(buttons, { {
+            text = _("Filter chapters..."),
+            align = "left",
+            callback = function()
+                if browser.menu_dialog then UIManager:close(browser.menu_dialog) end
+                browser:showFilterDialog(opts.series, opts.read_status)
+            end,
+        } })
+        table.insert(buttons, { {
+            text = _("Series actions..."),
+            align = "left",
+            callback = function()
+                if browser.menu_dialog then UIManager:close(browser.menu_dialog) end
+                browser:onSeriesHold({ series = opts.series, cover_id = opts.series.id })
+            end,
+        } })
+    end
+    return buttons
+end
+
 local function toggleTitleButtons(browser, opts)
+    local is_home = (#browser.paths == 0)
+    if BoardMenu then
+        browser.header_show_menu = not is_home
+        browser.header_menu_action = (not is_home) and function()
+            local ButtonDialog = require("ui/widget/buttondialog")
+            browser.menu_dialog = ButtonDialog:new{
+                buttons = buildActionsMenuButtons(browser, opts),
+                shrink_unneeded_width = true,
+            }
+            UIManager:show(browser.menu_dialog)
+        end or nil
+        return
+    end
     local title_bar = browser.title_bar
     if not title_bar then return end
-    local _ = browser.plugin.i18n._
-    local is_home = (#browser.paths == 0)
     if is_home then
         if title_bar.menu_btn then hideWidget(title_bar.menu_btn) end
     else
@@ -68,38 +129,8 @@ local function toggleTitleButtons(browser, opts)
         showWidget(title_bar.menu_btn)
         title_bar.menu_btn.callback = function()
             local ButtonDialog = require("ui/widget/buttondialog")
-            local buttons = {}
-            local covers_on = browser.plugin.settings.show_covers ~= false
-            if covers_on then
-                table.insert(buttons, { {
-                    text = browser.view_mode == "grid" and _("Switch to list view") or _("Switch to grid view"),
-                    align = "left",
-                    callback = function()
-                        if browser.menu_dialog then UIManager:close(browser.menu_dialog) end
-                        browser:setViewMode(browser.view_mode == "grid" and "list" or "grid")
-                    end,
-                } })
-            end
-            if opts and opts.is_series then
-                table.insert(buttons, { {
-                    text = _("Filter chapters..."),
-                    align = "left",
-                    callback = function()
-                        if browser.menu_dialog then UIManager:close(browser.menu_dialog) end
-                        browser:showFilterDialog(opts.series, opts.read_status)
-                    end,
-                } })
-                table.insert(buttons, { {
-                    text = _("Series actions..."),
-                    align = "left",
-                    callback = function()
-                        if browser.menu_dialog then UIManager:close(browser.menu_dialog) end
-                        browser:onSeriesHold({ series = opts.series, cover_id = opts.series.id })
-                    end,
-                } })
-            end
             browser.menu_dialog = ButtonDialog:new{
-                buttons = buttons,
+                buttons = buildActionsMenuButtons(browser, opts),
                 shrink_unneeded_width = true,
                 anchor = function() return title_bar.menu_btn.dimen end,
             }
@@ -111,7 +142,9 @@ local function toggleTitleButtons(browser, opts)
     UIManager:setDirty(title_bar, "ui")
 end
 
-local UchiBrowser = UchiListMenu:extend{
+local BrowserBase = BoardMenu or UchiListMenu
+
+local UchiBrowser = BrowserBase:extend{
     is_interactive = true,
     is_fullscreen = true,
     covers_fullscreen = true,
@@ -128,7 +161,15 @@ function UchiBrowser:init()
     self._pagination = nil
     self.catalog_title = "Uchiyomi"
     self.title = "Uchiyomi"
+    -- Fetching the home rails is several sequential server requests (one per
+    -- home list, plus on-deck); a bare blocking call here looked like a
+    -- hang. This doesn't make it faster, but it stops it looking frozen.
+    local InfoMessage = require("ui/widget/infomessage")
+    local loading = InfoMessage:new{ text = self.plugin.i18n._("Loading Uchiyomi...") }
+    UIManager:show(loading)
+    UIManager:forceRePaint()
     self.item_table = self:getHomeItemTable()
+    UIManager:close(loading)
     self.title_bar_left_icon = "search"
     self.onLeftButtonTap = function() end
     self.close_callback = function()
@@ -136,7 +177,11 @@ function UchiBrowser:init()
         local NetworkMgr = require("ui/network/manager")
         NetworkMgr:afterWifiAction()
     end
-    Menu.init(self)
+    if BoardMenu then
+        BoardMenu.init(self)
+    else
+        Menu.init(self)
+    end
     if self.title_bar and self.title_bar.left_button then hideWidget(self.title_bar.left_button) end
     self:autoSetViewMode(self.item_table)
 end
@@ -146,9 +191,13 @@ end
 -- ---------------------------------------------------------------------------
 
 function UchiBrowser:getPageSize(has_covers)
-    local mode = self.plugin.settings.view_mode or "list"
     if not has_covers then return math.max(6, self.plugin.settings.list_rows or 5) end
-    if mode == "grid" then
+    -- The board renderer always grids covered entries regardless of the
+    -- saved view_mode (see uchi/ui_board_menu.lua's _gridMode), so it must
+    -- always fetch a grid's worth of them too, or a "list" preference would
+    -- leave most of the grid empty.
+    local mode = self.plugin.settings.view_mode or "list"
+    if BoardMenu or mode == "grid" then
         return (self.plugin.settings.grid_columns or 3) * (self.plugin.settings.grid_rows or 3)
     end
     return self.plugin.settings.list_rows or 5
@@ -360,19 +409,16 @@ local function book_item(self, book, with_series)
     }
 end
 
+-- No bracketed page-progress label here (unlike the other home rails
+-- below): the board renderer's cover badge already shows it ("16/22"), and
+-- the stock list renderer's badge shows the same "page/total" -- a text
+-- line repeating it would just be clutter either way. no_caption_sub tells
+-- the board renderer's caption-splitting (uchi/ui_cards.lua) not to fall
+-- back to a chapter subtitle/author line here either, so every card in
+-- this shelf stays reliably one line, not just whichever happen to lack one.
 local function keep_reading_item(self, b)
-    local _ = self.plugin.i18n._
-    local T = self.plugin.i18n.T
     local item = book_item(self, b, true)
-    local rp = b.readProgress
-    local total = b.media and tonumber(b.media.pagesCount) or 0
-    local label
-    if type(rp) == "table" and not rp.completed and (tonumber(rp.page) or 0) > 0 then
-        label = total > 0 and T(_("page %1 of %2"), rp.page, total) or T(_("page %1"), rp.page)
-    else
-        label = _("next up")
-    end
-    item.text = item.text .. "  [" .. label .. "]"
+    item.no_caption_sub = true
     return item
 end
 
@@ -423,6 +469,24 @@ function UchiBrowser:_reloadHome(force)
     toggleTitleButtons(self, nil)
 end
 
+-- uchi/menu.lua's "Home screen lists" checklist (which collections show as
+-- shelves, and how many series each shows), opened directly from the
+-- browser instead of only from Tools > Uchiyomi > Home screen lists.
+function UchiBrowser:openHomeListsMenu()
+    local StockMenu = require("ui/widget/menu")
+    local _ = self.plugin.i18n._
+    local menu
+    menu = StockMenu:new{
+        title = _("Home screen lists"),
+        item_table = self.plugin.menu:homeListsMenu(),
+        close_callback = function()
+            UIManager:close(menu)
+            self:_reloadHome(true)
+        end,
+    }
+    UIManager:show(menu)
+end
+
 function UchiBrowser:getHomeItemTable()
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
@@ -431,12 +495,13 @@ function UchiBrowser:getHomeItemTable()
     local online = p.api ~= nil and NetworkMgr:isOnline()
     local items = {}
     local function header(text) table.insert(items, { text = text, is_header = true, select_enabled = false }) end
-    local function note(text) table.insert(items, { text = text, select_enabled = false }) end
+    local function note(text) table.insert(items, { text = text, select_enabled = false, kind = "note" }) end
 
     local pending = p.sync:countOfflineBuffer() + p.bookmarks:countOffline()
     if pending > 0 then
         table.insert(items, {
             text = T(_("%1 change(s) waiting to sync  (tap to sync now)"), pending),
+            kind = "sync-pending",
             callback = function()
                 NetworkMgr:runWhenOnline(function()
                     p.sync:flushOfflineProgress(true)
@@ -459,10 +524,17 @@ function UchiBrowser:getHomeItemTable()
                 pcall(p.cache.prefetchCovers, p.cache, covers, "book")
             end
             header(_("Keep reading"))
-            if #data.on_deck == 0 then
+            local dismissed = p.settings.home_dismissed
+            local on_deck = {}
+            for _i, b in ipairs(data.on_deck) do
+                if not (type(dismissed) == "table" and b.id and dismissed[b.id]) then
+                    table.insert(on_deck, b)
+                end
+            end
+            if #on_deck == 0 then
                 note(_("Nothing in progress. Open a chapter to start."))
             else
-                for _i, b in ipairs(data.on_deck) do table.insert(items, keep_reading_item(self, b)) end
+                for _i, b in ipairs(on_deck) do table.insert(items, keep_reading_item(self, b)) end
             end
             for _i, l in ipairs(data.lists) do
                 header(l.name)
@@ -486,30 +558,32 @@ function UchiBrowser:getHomeItemTable()
         do
             local _sid, sname = self:_scope()
             if sname then
-                table.insert(items, { text = T(_("Only showing series in: %1  (tap to show all)"), sname), callback = function()
+                table.insert(items, { text = T(_("Only showing series in: %1  (tap to show all)"), sname), kind = "scope", callback = function()
                     p._scope_off = true
                     self:_reloadHome(false)
                 end })
             elseif p.settings.browse_scope and p.settings.browse_scope ~= "" then
-                table.insert(items, { text = T(_("Showing all series  (tap to limit to %1)"), p.settings.browse_scope_name or "?"), callback = function()
+                table.insert(items, { text = T(_("Showing all series  (tap to limit to %1)"), p.settings.browse_scope_name or "?"), kind = "scope", callback = function()
                     p._scope_off = nil
                     self:_reloadHome(false)
                 end })
             end
         end
-        table.insert(items, { text = _("New chapters (favourites)"), callback = function() self:showUpdates() end })
-        table.insert(items, { text = _("Favourites"),             callback = function() self:showFavorites() end })
-        table.insert(items, { text = _("Bookmarks"),              callback = function() self:showBookmarks() end })
-        table.insert(items, { text = _("Recently updated series"), callback = function() self:showAllSeries("updated,desc", _("Recently updated series")) end })
-        table.insert(items, { text = _("All series"),             callback = function() self:showAllSeries("title,asc", _("All series")) end })
-        table.insert(items, { text = _("Libraries"),              callback = function() self:showLibraries() end })
-        table.insert(items, { text = _("Search..."),              callback = function() self:promptSearch() end })
-        table.insert(items, { text = _("Downloaded chapters (offline)"), callback = function() self:showOfflineLibrary() end })
-        table.insert(items, { text = _("Refresh"),                callback = function() self:_reloadHome(true) end })
+        table.insert(items, { text = _("New chapters (favourites)"), kind = "updates", callback = function() self:showUpdates() end })
+        table.insert(items, { text = _("Favourites"), kind = "favorites", callback = function() self:showFavorites() end })
+        table.insert(items, { text = _("Bookmarks"), kind = "bookmarks", callback = function() self:showBookmarks() end })
+        table.insert(items, { text = _("Recently updated series"), kind = "recent", callback = function() self:showAllSeries("updated,desc", _("Recently updated series")) end })
+        table.insert(items, { text = _("All series"), kind = "all-series", callback = function() self:showAllSeries("title,asc", _("All series")) end })
+        table.insert(items, { text = _("Libraries"), kind = "libraries", callback = function() self:showLibraries() end })
+        table.insert(items, { text = _("Search..."), kind = "search", callback = function() self:promptSearch() end })
+        table.insert(items, { text = _("Downloaded chapters (offline)"), kind = "offline", callback = function() self:showOfflineLibrary() end })
+        table.insert(items, { text = _("Choose home screen lists"), kind = "manage-lists", callback = function() self:openHomeListsMenu() end })
+        table.insert(items, { text = _("Refresh"), kind = "refresh", callback = function() self:_reloadHome(true) end })
     else
         header(_("Offline"))
-        table.insert(items, { text = _("Downloaded chapters"), callback = function() self:showOfflineLibrary() end })
-        table.insert(items, { text = _("Connect to Wi-Fi and load Keep reading"), callback = function()
+        table.insert(items, { text = _("Downloaded chapters"), kind = "offline", callback = function() self:showOfflineLibrary() end })
+        table.insert(items, { text = _("Choose home screen lists"), kind = "manage-lists", callback = function() self:openHomeListsMenu() end })
+        table.insert(items, { text = _("Connect to Wi-Fi and load Keep reading"), kind = "reconnect", callback = function()
             NetworkMgr:runWhenOnline(function() self:_reloadHome(true) end)
         end })
     end
@@ -1073,6 +1147,130 @@ function UchiBrowser:onSeriesHold(entry)
     UIManager:show(dialog)
 end
 
+-- Marks a Keep reading card's chapter read, then updates that same card in
+-- place to the series' next unread chapter (so the row still has an entry
+-- to open, just the next one) instead of refetching the whole home screen
+-- -- only removes the card when getNextUnreadBook finds nothing left
+-- unread. entry is the exact table in self.item_table (see
+-- uchi/ui_board_menu.lua: the same entry reference flows from
+-- item_table through Cards.cell's hit action to here), so mutating it in
+-- place is enough; self:updateItems() just repaints with the new content.
+function UchiBrowser:_markKeepReadingEntryRead(entry, book)
+    local _ = self.plugin.i18n._
+    local ok = self.plugin.sync:setBookRead(book, true)
+    if not ok then
+        self.plugin:notify(_("Could not update read status"), "error")
+        return
+    end
+    local series_id = book.seriesId or book.series_id
+    local next_book = nil
+    if series_id and self.plugin.api then
+        local series = self.plugin.api:get_series(series_id)
+        if type(series) == "table" then
+            next_book = self.plugin.sync:getNextUnreadBook(series)
+        end
+    end
+    if next_book then
+        if self.plugin.settings.show_covers ~= false then
+            pcall(self.plugin.cache.prefetchCovers, self.plugin.cache, { next_book }, "book")
+        end
+        entry.book = next_book
+        entry.text = Labels.display(next_book, true)
+        entry.cover_id = self.plugin.settings.show_covers ~= false and next_book.id or nil
+        entry.callback = function() self:onBookSelect(next_book) end
+        self.plugin:notify(_("Marked read — next chapter ready"), "info")
+    else
+        for i, it in ipairs(self.item_table) do
+            if it == entry then table.remove(self.item_table, i); break end
+        end
+        self.plugin:notify(_("Marked read"), "info")
+    end
+    self:updateItems()
+end
+
+-- Hold on a Home shelf card (Keep reading, or a home list): quick "I don't
+-- want to see this here" actions, since there is no other way to curate
+-- either shelf. Keep reading has no book.__series (it comes from Uchiyomi's
+-- on-deck list, not a favourited series): that's what tells a pure
+-- Keep-reading card apart from a home-list one, and is what gates "Remove
+-- from Continue Reading" below. Returns true when it handled the hold,
+-- false to fall through to the full chapter action sheet.
+function UchiBrowser:onHomeCardHold(entry)
+    local book = entry.book
+    if not book then return false end
+    local _ = self.plugin.i18n._
+    local series = book.__series
+    local is_fav = series and ((series.yomi and series.yomi.favorite == true) or series.favorite == true)
+    local is_read = type(book.readProgress) == "table" and book.readProgress.completed
+    if not series and not book.id and is_read then return false end
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local dialog
+    local buttons = {}
+    if series and series.id then
+        table.insert(buttons, { { text = is_fav and _("Remove from favourites") or _("Add to favourites"), align = "left", callback = function()
+            UIManager:close(dialog)
+            local ok = is_fav and self.plugin.api:remove_favorite(series.id) or self.plugin.api:add_favorite(series.id)
+            if ok then
+                self.plugin:notify(is_fav and _("Removed from favourites") or _("Added to favourites"), "info")
+                self:_reloadHome(true)
+            else
+                self.plugin:notify(_("Could not update favourites"), "error")
+            end
+        end } })
+    end
+    -- Local to this device only: Uchiyomi's own reading state (and its
+    -- favourite/unread status) is untouched, so it is not "marking as read"
+    -- -- it just stops this chapter from appearing on this shelf, the way
+    -- Plex lets you clear something off Continue Watching without
+    -- finishing it. getHomeItemTable filters on_deck against this set.
+    if not series and book.id then
+        table.insert(buttons, { { text = _("Remove from Continue Reading"), align = "left", callback = function()
+            UIManager:close(dialog)
+            self.plugin.settings.home_dismissed = self.plugin.settings.home_dismissed or {}
+            self.plugin.settings.home_dismissed[book.id] = true
+            self.plugin:saveSettings()
+            self.plugin:notify(_("Removed from Continue Reading"), "info")
+            self:_reloadHome(false)
+        end } })
+    end
+    if not is_read then
+        if series then
+            -- A home-list card is already "the next unread chapter of this
+            -- favourited series" (see _homeData); reloading after marking
+            -- this one read makes getNextUnreadBook pick the new one on
+            -- its own, so a plain reload already does the right thing.
+            table.insert(buttons, { { text = _("Mark as read  (remove from here)"), align = "left", callback = function()
+                UIManager:close(dialog)
+                local ok = self.plugin.sync:setBookRead(book, true)
+                if ok then
+                    self.plugin:notify(_("Marked read"), "info")
+                    self:_reloadHome(true)
+                else
+                    self.plugin:notify(_("Could not update read status"), "error")
+                end
+            end } })
+        else
+            -- A Keep reading card: Uchiyomi's own on-deck list does not
+            -- reliably advance to the series' next chapter by itself (a
+            -- plain reload after marking read was just dropping the card),
+            -- so this looks up the next unread chapter explicitly and only
+            -- drops the card when there really is nothing left unread.
+            table.insert(buttons, { { text = _("Mark as read"), align = "left", callback = function()
+                UIManager:close(dialog)
+                self:_markKeepReadingEntryRead(entry, book)
+            end } })
+        end
+    end
+    table.insert(buttons, { { text = _("More..."), align = "left", callback = function()
+        UIManager:close(dialog)
+        self:onChapterHold(entry)
+    end } })
+    table.insert(buttons, { { text = _("Cancel"), align = "center", callback = function() UIManager:close(dialog) end } })
+    dialog = ButtonDialog:new{ title = Labels.display(book, true), buttons = buttons, shrink_unneeded_width = true }
+    UIManager:show(dialog)
+    return true
+end
+
 function UchiBrowser:onMenuHold(entry)
     if not entry then return end
     if entry.hold_callback then entry.hold_callback(); return end
@@ -1080,6 +1278,14 @@ function UchiBrowser:onMenuHold(entry)
         self:onSeriesHold(entry)
         return
     end
+    if #self.paths == 0 and self:onHomeCardHold(entry) then return end
+    self:onChapterHold(entry)
+end
+
+-- The full chapter action sheet (Open/Download/Stream/mark read/delete).
+-- Called directly for a hold anywhere other than a Home shelf card, and
+-- from onHomeCardHold's "More..." row.
+function UchiBrowser:onChapterHold(entry)
     local book = entry.book
     if not book then return end
     local _ = self.plugin.i18n._

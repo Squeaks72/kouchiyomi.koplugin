@@ -13,6 +13,14 @@ Davis), reworked for Uchiyomi's native API.
   series) first, then new chapters in your favourites, then browsing:
   favourites, server bookmarks, recently updated, all series, per-library,
   search, and an offline view of everything downloaded.
+- **A BookOrbit-styled browser, when BookOrbit is installed**: the Uchiyomi browser and chapter lists are drawn with
+  BookOrbit's own primitives instead of stock KOReader widgets -- grid cards everywhere a thumbnail-and-title-beside-it
+  list row used to be, a search bar pinned to Home, Keep reading and your chosen lists as horizontally-paged shelves,
+  Browse as a grid of icon tiles, and a settings shortcut in every header. Entirely optional and detected at runtime
+  (`uchi/ui_theme.lua`); without BookOrbit installed the original stock-widget browser renders exactly as before.
+  Settings ▸ "Choose home screen lists" (also reachable from Browse) picks which lists show as shelves. Hold a Keep
+  reading card for quick actions: remove it from the row without marking it read, or mark read (which advances the
+  card to the series' next unread chapter instead of just dropping it).
 - **Read your way**: tap a chapter to download it (default) or stream it from
   the server; the choice is a setting, or ask every time. Hold a chapter for
   download / stream / download this + next N / mark read or unread.
