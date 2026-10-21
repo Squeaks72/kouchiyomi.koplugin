@@ -60,16 +60,9 @@ local DEFAULT_SETTINGS = {
     -- Limit the browser's catalogue views to one list ("favorites" or a list id; nil = every series). uchi/scope.
     browse_scope = nil,
     browse_scope_name = nil,
-    -- 18+ chapters are streamed and never written to disk: a file is what turns
-    -- up in the file manager, the cover browser, KOReader's history and "open
-    -- last book on startup", so not having one is the only guarantee that does
-    -- not rely on a filter. Costs the reader features a document has (bookmarks,
-    -- panel zoom, the seeded view mode, spread rotation) for those chapters.
-    stream_adult_chapters = true,
     adult_libraries = {},            -- library id -> true, from /api/libraries
     adult_libraries_at = 0,
     adult_series_cache = {},         -- series id -> true/false, so it is known offline
-    adult_sweep_done = false,        -- the one-off removal of 18+ chapters downloaded before 0.10.0
     -- KOReader's reading statistics keep a row per document ever opened, with
     -- its title and series, and outlive the file. Cleared by the same sweep;
     -- the database is copied to statistics.sqlite3.kouchiyomi-bkp first, once.
@@ -201,11 +194,6 @@ function Plugin:init()
     -- A sleep screen still held by a session that was killed mid-chapter.
     pcall(SleepScreen.restoreIfStale, self)
     pcall(require("uchi/history").collapse, self)
-    if not self.settings.adult_sweep_done then
-        UIManager:scheduleIn(8, function()
-            if NetworkMgr:isOnline() then pcall(self.sync.sweepAdultDownloadsOnce, self.sync) end
-        end)
-    end
     logger.info("kouchiyomi: initialised")
 end
 
@@ -1071,9 +1059,6 @@ function Plugin:onNetworkConnected()
     if Plugin._connect_pending then return end
     Plugin._connect_pending = true
     local steps = {
-        function()
-            if not self.settings.adult_sweep_done then self.sync:sweepAdultDownloadsOnce() end
-        end,
         function()
             if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end
         end,

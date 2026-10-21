@@ -77,20 +77,14 @@ Davis), reworked for Uchiyomi's native API.
   right; a page turn moves past both, and a real (wide) spread keeps the screen
   to itself. A screen the plugin turned for a spread stays single; this is for
   a screen you turned yourself. Settings ▸ Reading turns it off.
-- **18+ stays off the device**: 18+ series are streamed, never downloaded, so no
-  file of one can appear in the file manager, the cover browser, KOReader's
-  history or "open last book on startup" — and they are not listed on the home
-  screen, in updates, favourites, history, bookmarks or a plain search, because
-  the plugin stops asking the server to include them. Opening a library marked
-  18+ from the Libraries list still works: Uchiyomi filters its *listings*, not
-  what you ask for by name. Chapters an older version downloaded are swept once
-  on upgrade, along with their rows in KOReader's reading statistics (the
-  database is backed up first). Settings ▸ Server turns it off. (An admin can
-  also mark genres as adult server-side; that list is not exposed by the API, so
-  only libraries and per-series age ratings are detected.) While an 18+ chapter
-  is on screen, KOReader's sleep screen is held at a covered panel — the
-  screensaver is painted before a plugin hears about the suspend, so it has to
-  be arranged in advance — and released when the chapter closes.
+- **18+ is listed only when asked, and read like anything else**: 18+ series are not listed on the home screen, in
+  updates, favourites, history, bookmarks or a plain search, because the plugin stops asking the server to include
+  them (Settings ▸ Server: "Show 18+ in search and lists" turns that around; "Let me open 18+ libraries" covers a
+  library marked 18+). A chapter you open streams or downloads according to the ordinary open mode. (An admin can also
+  mark genres as adult server-side; that list is not exposed by the API, so only libraries and per-series age ratings
+  are detected.) While an 18+ chapter is on screen, KOReader's sleep screen is held at a covered panel — the
+  screensaver is painted before a plugin hears about the suspend, so it has to be arranged in advance — and released
+  when the chapter closes. "Remove downloaded 18+ chapters now" clears any that are on the device.
 - **Footer**: "⇅N" while changes wait to sync, "↓N" while downloads run.
 - **Series actions**: favourite, download next unread N, mark all read.
 - **Reads like manga**: chapters open with right-to-left page turning, so the

@@ -157,7 +157,7 @@ end
     A listing that follows the "Show 18+" setting (`reveal_all`), the way Uchiyomi's own switch does: with it on the
     request carries `adult=1` and the server includes 18+ in search, the home rails, updates, favourites, history,
     collections and bookmarks. Off (the default) it is the path untouched, and none of those ever list 18+.
-    Chapters of an 18+ series are still streamed, never downloaded, whatever this says.
+    How an 18+ chapter is read (streamed or downloaded) is the ordinary open mode, like any other chapter.
 --]]
 function UchiyomiAPI:listing(path)
     if not self.reveal_all or path:find("adult=1", 1, true) then return path end

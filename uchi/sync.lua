@@ -907,27 +907,6 @@ function Sync:enforceDownloadCap(protect_path, quiet)
 end
 
 --- Download one chapter; calls on_success(path) / on_failure(err) on the next tick.
---[[
-    Is this chapter one that must not be written to disk?
-
-    18+ chapters are streamed instead of downloaded, and this is the gate that
-    makes it true of EVERY path rather than of the ones anybody remembered:
-    tapping a chapter, the end-of-chapter advance, the read-ahead, a catch-up
-    jump, turning back into the previous chapter, "download this + next N".
-    A file is the thing that shows up in the file manager, the cover browser,
-    KOReader's history and "open last book on startup", so not having one is the
-    only guarantee that does not depend on a filter being remembered.
-
-    Unknown counts as "not 18+": see Adult.isBook -- the alternative is refusing
-    every download the moment the server cannot be reached, and a chapter cannot
-    be downloaded without the server anyway.
---]]
-function Sync:mustStream(book, series)
-    if self.plugin.settings.stream_adult_chapters == false then return false end
-    local ok, verdict = pcall(Adult.isBook, self.plugin, book, series)
-    return ok and verdict == true
-end
-
 function Sync:downloadBook(book, series_title, on_success, on_failure, series)
     local _ = self.plugin.i18n._
     local T = self.plugin.i18n.T
@@ -935,14 +914,6 @@ function Sync:downloadBook(book, series_title, on_success, on_failure, series)
     if not series and self.plugin.api and book.seriesId then
         local s = self.plugin.api:get_series(book.seriesId)
         if type(s) == "table" then series = s; book.__series = s end
-    end
-    -- 18+: stream it instead, and tell the caller nothing landed, so on_success
-    -- (which would open a file that was never written) does not run.
-    if self:mustStream(book, series) then
-        self.plugin:notify(_("18+ chapters are streamed, never downloaded."), "info")
-        self.plugin.stream:open(book)
-        if on_failure then on_failure("18+ chapters are streamed") end
-        return
     end
     series_title = series_title or book.seriesTitle or (series and (series.name or (series.metadata and series.metadata.title)))
     if not self.plugin.api then
@@ -1055,8 +1026,6 @@ end
 -- a foreground download. Returns true when a job is running for the book.
 function Sync:startBackgroundDownload(book, series_title, series)
     if not self.plugin.api or type(book) ~= "table" or not book.id then return false end
-    -- Nothing to stream to in the background, so 18+ simply does not read ahead.
-    if self:mustStream(book, series) then return false end
     local key = tostring(book.id)
     if Sync.jobs[key] then return true end
     series_title = series_title or book.seriesTitle or (series and ((series.metadata and series.metadata.title) or series.name))
@@ -1376,9 +1345,6 @@ function Sync:downloadBooksSeq(books, index, on_done, skipped)
     end
     local book = books[index]
     if books[index + 1] then self:cacheNextChapter(book.id, books[index + 1]) end
-    if self:mustStream(book) then
-        return self:downloadBooksSeq(books, index + 1, on_done, skipped + 1)
-    end
     local step = function() self:downloadBooksSeq(books, index + 1, on_done, skipped) end
     self:downloadBook(book, book.seriesTitle, step, step)
 end
@@ -1854,20 +1820,6 @@ function Sync:sweepAdultDownloads(is_manual)
         end
     end
     return removed, unresolved, purged
-end
-
---- The once-ever version of the sweep, for upgrading from a version that
--- downloaded 18+ chapters. Nothing is marked done until a run that resolved
--- every chapter it found, so a series the server could not answer for is not
--- quietly skipped forever.
-function Sync:sweepAdultDownloadsOnce()
-    if self.plugin.settings.adult_sweep_done then return end
-    if self.plugin.settings.stream_adult_chapters == false then return end
-    local ok, _removed, unresolved = pcall(self.sweepAdultDownloads, self, false)
-    if not ok then return end
-    if (tonumber(unresolved) or 0) > 0 then return end
-    self.plugin.settings.adult_sweep_done = true
-    self.plugin:saveSettings()
 end
 
 -- ---------------------------------------------------------------------------

@@ -1008,11 +1008,7 @@ function UchiBrowser:_downloadBookList(books)
     local NetworkMgr = require("ui/network/manager")
     NetworkMgr:runWhenOnline(function()
         self.plugin.sync:downloadBooksSeq(to_download, 1, function(skipped)
-            if (tonumber(skipped) or 0) > 0 then
-                self.plugin:notify(T(_("Downloads finished; %1 skipped (18+ chapters are streamed)."), skipped), "info")
-            else
-                self.plugin:notify(_("Downloads finished."), "info")
-            end
+            self.plugin:notify(_("Downloads finished."), "info")
             self:updateItems()
         end)
     end)

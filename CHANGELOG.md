@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0 — 2026-10-21
+- **18+ chapters follow the ordinary open mode again.** The "Stream 18+ chapters, never download them" restriction is
+  gone, with the once-after-upgrade sweep that deleted 18+ downloads: an 18+ chapter streams or downloads (and reads
+  ahead) exactly as any other, per Settings > open mode. Nothing is deleted any more unless you ask, with
+  "Remove downloaded 18+ chapters now". Kept, because they never depended on streaming: 18+ stays out of lists unless
+  you turn on "Show 18+ in search and lists", and the sleep screen is still covered while an 18+ chapter is open
+  (Settings > "Keep 18+ off the sleep screen").
+
 ## 0.19.0 — 2026-10-20
 - **Browse only the series of one list.** Settings > "Only browse series in a list": pick Favourites or any of your
   Uchiyomi lists, and All series, Recently updated, a library's series and search show only the series in it instead of

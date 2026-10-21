@@ -163,7 +163,7 @@ function Menu:serverMenu()
         },
         {
             text = _("Show 18+ in search and lists"),
-            help_text = _("Like Uchiyomi's own Show 18+ switch: with it on, search, the home rails, updates, favourites, history, collections and bookmarks include 18+ series. Off by default, and then none of those ever list one. It does not change how 18+ chapters are read: they are still streamed rather than downloaded when 'Stream 18+ chapters' is on, and they stay off the sleep screen."),
+            help_text = _("Like Uchiyomi's own Show 18+ switch: with it on, search, the home rails, updates, favourites, history, collections and bookmarks include 18+ series. Off by default, and then none of those ever list one. It does not change how 18+ chapters are read: they stream or download like any other chapter, per your open mode, and stay off the sleep screen."),
             checked_func = function() return p.settings.show_adult_listings == true end,
             keep_menu_open = true,
             callback = function(tm)
@@ -171,16 +171,6 @@ function Menu:serverMenu()
                 p:saveSettings()
                 p:initAPI()
                 if tm then tm:updateItems() end
-            end,
-        },
-        {
-            text = _("Stream 18+ chapters, never download them"),
-            help_text = _("A downloaded chapter is a file, and a file turns up in the file manager, the cover browser, KOReader's history and 'open last book on startup'. Streaming writes nothing to the device, so there is nothing to turn up -- at the cost of what a document gives a chapter: bookmarks, panel zoom, the seeded view mode and page turning, and turning the screen for spreads. Progress still syncs. Reading ahead is skipped for these chapters."),
-            checked_func = function() return p.settings.stream_adult_chapters ~= false end,
-            keep_menu_open = true,
-            callback = function()
-                p.settings.stream_adult_chapters = not (p.settings.stream_adult_chapters ~= false)
-                p:saveSettings()
             end,
         },
         {
@@ -198,7 +188,7 @@ function Menu:serverMenu()
         },
         {
             text = _("Also clear 18+ books from KOReader's statistics"),
-            help_text = _("KOReader keeps a row per document ever opened -- title, author, series and every reading session -- and it outlives the file, so 18+ chapters read before 0.10.0 are still listed under Statistics. The sweep below clears them: by file identity for what it deletes, and by series name for what an earlier version deleted long ago. The database is copied to statistics.sqlite3.kouchiyomi-bkp first, once, because this lowers real reading totals and streaks and cannot be undone."),
+            help_text = _("KOReader keeps a row per document ever opened -- title, author, series and every reading session -- and it outlives the file, so 18+ chapters read before 0.10.0 are still listed under Statistics. The 'Remove downloaded 18+ chapters' sweep clears them: by file identity for what it deletes, and by series name for what an earlier version deleted long ago. The database is copied to statistics.sqlite3.kouchiyomi-bkp first, once, because this lowers real reading totals and streaks and cannot be undone."),
             checked_func = function() return p.settings.purge_adult_stats ~= false end,
             keep_menu_open = true,
             callback = function()
@@ -208,7 +198,7 @@ function Menu:serverMenu()
         },
         {
             text = _("Remove downloaded 18+ chapters now"),
-            help_text = _("Deletes the files, their sidecars, their KOReader history entries and the series folder they sat in, and (unless turned off above) their rows in KOReader's statistics. Progress and bookmarks live on Uchiyomi, so nothing is lost but the local copy. Runs by itself once after upgrading; this is for running it again."),
+            help_text = _("Deletes the files, their sidecars, their KOReader history entries and the series folder they sat in, and (unless turned off above) their rows in KOReader's statistics. Progress and bookmarks live on Uchiyomi, so nothing is lost but the local copy."),
             keep_menu_open = true,
             callback = function() p.sync:sweepAdultDownloads(true) end,
         },
