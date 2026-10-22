@@ -23,6 +23,7 @@ local Labels = require("uchi/labels")
 local ChapterEnd = require("uchi/chapter_end")
 local Spreads = require("uchi/spreads")
 local Dual = require("uchi/dualpage")
+local Tap = require("uchi/tapzones")
 
 local Stream = {}
 
@@ -72,6 +73,21 @@ function StreamViewer:onShowPrevImage()
     end
     self:switchToImageNum(Stream.backTarget(self.st, self._images_list_cur, self.stream and self.stream:_dualOn()))
     return true
+end
+
+-- ImageViewer turns on the left and right thirds, left-to-right always. Taps go by the tap-zone settings
+-- (uchi/tapzones) instead, which follow the chapter's reading direction.
+function StreamViewer:onTap(_, ges)
+    local plugin = self.stream and self.stream.plugin
+    local main = self.main_frame and self.main_frame.dimen
+    if not (plugin and self.st and self._images_list and main and ges and ges.pos) or ges.pos:notIntersectWith(main)
+        or (self.with_title_bar and self.frame_elements and ges.pos.y < self.frame_elements[1]:getSize().h) then
+        return ImageViewer.onTap(self, _, ges)
+    end
+    local where = Tap.streamTarget(plugin.settings, self.st.rtl, ges.pos.x / Screen:getWidth())
+    if where == "next" then return self:onShowNextImage() end
+    if where == "prev" then return self:onShowPrevImage() end
+    return ImageViewer.onTap(self, _, ges)
 end
 
 --- The screen turned, or the two-page setting changed: a landscape screen shows two pages where a portrait one

@@ -312,6 +312,12 @@ function Menu:readingMenu()
         pick("chapter_ui_mirror", "off", _("Never mirror"), "leave"),
         pick("chapter_ui_mirror", "leave", _("Leave KOReader alone"), "leave"),
         {
+            text = _("Tap zones"),
+            help_text = _("Which side of the screen a tap turns the page forward on, for each reading style, and how much of the screen turns forward. Applies to downloaded chapters and to streaming."),
+            keep_menu_open = true,
+            sub_item_table_func = function() return self:tapZonesMenu() end,
+        },
+        {
             text = _("New chapters"),
             separator = true,
             -- These are written into a chapter's sidecar as it downloads, which is the only moment
@@ -619,6 +625,54 @@ function Menu:homeListsMenu()
         text = _("Shown on the Uchiyomi home screen, in the order ticked:"),
         enabled_func = function() return false end,
     })
+    return items
+end
+
+--- Tap zones: the side the next page is on for each reading style, and the width of that zone (uchi/tapzones).
+function Menu:tapZonesMenu()
+    local _ = self.plugin.i18n._
+    local T = self.plugin.i18n.T
+    local p = self.plugin
+    local function changed()
+        p:saveSettings()
+        require("uchi/tapzones").refresh(p)
+    end
+    local function side_rows(key, title, natural)
+        local rows = { { text = title, enabled = false } }
+        local function row(value, label)
+            rows[#rows + 1] = {
+                text = label,
+                radio = true,
+                checked_func = function() return (p.settings[key] or "auto") == value end,
+                keep_menu_open = true,
+                callback = function() p.settings[key] = value; changed() end,
+            }
+        end
+        row("auto", T(_("Natural: the %1 (like KOReader)"), natural))
+        row("left", _("Left"))
+        row("right", _("Right"))
+        return rows
+    end
+    local items = {}
+    for _i, r in ipairs(side_rows("tap_next_side_rtl", _("Right-to-left chapters: side of the next page"), _("left"))) do items[#items + 1] = r end
+    for _i, r in ipairs(side_rows("tap_next_side_ltr", _("Left-to-right chapters: side of the next page"), _("right"))) do items[#items + 1] = r end
+    items[#items + 1] = { text = _("Next-page zone width:"), enabled = false }
+    items[#items + 1] = {
+        text = _("Default (KOReader's sizes)"),
+        radio = true,
+        checked_func = function() return tonumber(p.settings.tap_next_width) == nil end,
+        keep_menu_open = true,
+        callback = function() p.settings.tap_next_width = nil; changed() end,
+    }
+    for _i, w in ipairs(require("uchi/tapzones").WIDTHS) do
+        items[#items + 1] = {
+            text = T(_("%1% of the screen"), math.floor(w * 100 + 0.5)),
+            radio = true,
+            checked_func = function() return tonumber(p.settings.tap_next_width) == w end,
+            keep_menu_open = true,
+            callback = function() p.settings.tap_next_width = w; changed() end,
+        }
+    end
     return items
 end
 

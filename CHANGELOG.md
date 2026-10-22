@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.23.0 — 2026-10-21
+- **Tap zones (Settings > Reading > Tap zones).** Choose which side of the screen turns the page forward, separately
+  for right-to-left (manga) and left-to-right chapters -- natural (left for manga, like KOReader), left, or right -- and
+  how much of the screen turns forward (25-75%, or KOReader's own sizes). It applies to downloaded chapters (through
+  KOReader's own tap zones, so nothing else about them changes; left alone, they keep whatever zone layout you set in
+  KOReader) and to streaming.
+- **Fixed: streaming ignored right-to-left taps.** The streaming viewer always treated its left third as "previous",
+  so on a manga the left side did not go forward. It now follows the chapter's reading direction, like a
+  downloaded one: left is next for right-to-left, right is next for left-to-right.
+
 ## 0.22.1 — 2026-10-21
 - **No setting is cut off with "…" any more.** Checked by walking every settings page at three screen widths (1264, 1072
   and 758 px) and logging each piece of text the widget had to shorten: a long value (the repository, the tokens) now

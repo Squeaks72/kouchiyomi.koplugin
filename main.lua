@@ -121,6 +121,11 @@ local DEFAULT_SETTINGS = {
     join_split_spreads = true,
     -- On a landscape screen the page you are on is shown with the one after it beside it (uchi/dualpage).
     dual_page_landscape = true,
+    -- Which side a tap turns the page forward on, per reading style ("auto" = the natural side for the direction),
+    -- and how wide that zone is; unset leaves KOReader's own zones (uchi/tapzones).
+    tap_next_side_rtl = "auto",
+    tap_next_side_ltr = "auto",
+    tap_next_width = nil,
     -- Only the latest chapter read of a series stays in KOReader's history, so a home screen built from it
     -- (SimpleUI) lists a manga once instead of once per chapter (uchi/history).
     one_history_entry_per_series = true,
@@ -681,6 +686,8 @@ function Plugin:onReaderReady()
     -- Landscape shows two pages side by side; installed after the hook above so a turn it does not
     -- handle (back from the first page) still reaches the previous-chapter logic.
     pcall(require("uchi/dualpage").install, self, ui)
+    -- Tap zones follow Settings > Reading > Tap zones (uchi/tapzones).
+    pcall(require("uchi/tapzones").install, self, ui)
 
     -- Something asked to open this document at a given page: a bookmark tapped
     -- in the browser, a turn back into the previous chapter (pending_goto_last:
