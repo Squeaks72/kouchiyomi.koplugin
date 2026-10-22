@@ -315,6 +315,7 @@ function Menu:readingMenu()
             text = _("Tap zones"),
             help_text = _("Which side of the screen a tap turns the page forward on, for each reading style, and how much of the screen turns forward. Applies to downloaded chapters and to streaming."),
             keep_menu_open = true,
+            custom_page = "tapzones",
             sub_item_table_func = function() return self:tapZonesMenu() end,
         },
         {

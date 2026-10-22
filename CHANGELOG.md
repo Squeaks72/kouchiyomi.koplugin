@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.0 — 2026-10-21
+- **Tap zones get a page of their own, with pictures.** With BookOrbit installed, Settings > Reading > Tap zones opens a
+  BookOrbit-styled page: one card for right-to-left and one for left-to-right, each with a drawing of the screen
+  showing where a tap goes forward ("Next") and back ("Back") and a Natural / Left / Right control for the side, then a
+  segmented control for the width of the next-page zone (Default, 25-75%). Every choice redraws the pictures at once
+  and applies to the chapter you have open. Without BookOrbit the same choices stay plain radio rows.
+
 ## 0.23.0 — 2026-10-21
 - **Tap zones (Settings > Reading > Tap zones).** Choose which side of the screen turns the page forward, separately
   for right-to-left (manga) and left-to-right chapters -- natural (left for manga, like KOReader), left, or right -- and

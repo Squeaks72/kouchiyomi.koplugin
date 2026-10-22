@@ -248,6 +248,11 @@ local function onAction(page, action)
         UIManager:show(TextViewer:new{ title = (splitValue(labelOf(item), item)), text = item.help_text })
     elseif action.kind == "item" then
         local item = action.item
+        -- A row with a page of its own (the tap zones' pictures) opens that; the plain submenu is its fallback.
+        if item.custom_page == "tapzones" then
+            local ok, opened = pcall(function() return require("uchi/ui_tapzones_page").open(page.plugin) end)
+            if ok and opened then return true end
+        end
         if item.sub_item_table ~= nil or item.sub_item_table_func ~= nil then
             return pushLevel(page, item)
         end
