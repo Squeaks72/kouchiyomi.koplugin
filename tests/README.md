@@ -19,6 +19,7 @@ cd /path/to/kouchiyomi.koplugin && lua5.1 tests/scope.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/scope_browser.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/tapzones.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/sleepscreen.lua
+cd /path/to/kouchiyomi.koplugin && lua5.1 tests/menu_pin.lua
 ```
 
 The rest run with KOReader's own LuaJIT from an extracted KOReader install (the

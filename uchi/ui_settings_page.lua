@@ -285,25 +285,36 @@ local function onSwipe(page, ges)
     return false
 end
 
---- Open the settings. `open_index` opens that top-level row's submenu at once.
-function Page.open(plugin, open_index)
-    if not (Theme.available and plugin and plugin.menu and plugin.menu.createMainMenu) then return false end
-    local items = plugin.menu:createMainMenu()
-    local version
-    if plugin.updater and plugin.updater.localVersion then version = plugin.updater:localVersion() end
+--- Show a tree of items as a page. `opts`: title, sub (the line under the title), items, name; `open_index` opens
+-- that top-level row's submenu at once.
+function Page.openItems(plugin, opts, open_index)
+    if not Theme.available then return false end
+    local items = opts.items
     local page = Theme.MenuPage:new{
-        name = "kouchiyomi_settings",
+        name = opts.name or "kouchiyomi_settings",
         build = build,
         on_action = onAction,
         on_back = onBack,
         on_swipe = onSwipe,
         on_page_key = function(p, delta) onAction(p, { kind = "page", delta = delta }) end,
         plugin = plugin,
-        levels = { { title = plugin.i18n._("Uchiyomi"), sub = version and ("kouchiyomi " .. version) or nil, items = items, page = 1 } },
+        levels = { { title = opts.title, sub = opts.sub, items = items, page = 1 } },
     }
     UIManager:show(page, "ui")
     if open_index and items[open_index] then pushLevel(page, items[open_index]) end
     return true
+end
+
+--- Open the settings. `open_index` opens that top-level row's submenu at once.
+function Page.open(plugin, open_index)
+    if not (Theme.available and plugin and plugin.menu and plugin.menu.createMainMenu) then return false end
+    local version
+    if plugin.updater and plugin.updater.localVersion then version = plugin.updater:localVersion() end
+    return Page.openItems(plugin, {
+        title = plugin.i18n._("Uchiyomi"),
+        sub = version and ("kouchiyomi " .. version) or nil,
+        items = plugin.menu:createMainMenu(),
+    }, open_index)
 end
 
 return Page

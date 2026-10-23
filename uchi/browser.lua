@@ -11,6 +11,7 @@ local UIManager = require("ui/uimanager")
 local logger = require("logger")
 local Labels = require("uchi/labels")
 local Scope = require("uchi/scope")
+local SeriesActions = require("uchi/series_actions")
 
 -- When BookOrbit (bookorbit.koplugin) is installed, the browser is drawn
 -- with its primitives instead of these two stock Menu subclasses -- see
@@ -1069,81 +1070,74 @@ function UchiBrowser:promptCount(title, default_val, confirm_text, on_confirm)
 end
 
 function UchiBrowser:_downloadBookList(books)
-    local _ = self.plugin.i18n._
-    local T = self.plugin.i18n.T
-    local to_download = {}
-    for _i, b in ipairs(books or {}) do
-        if not self.plugin.sync:isBookDownloaded(b) then table.insert(to_download, b) end
-    end
-    if #to_download == 0 then
-        self.plugin:notify(_("Nothing to download (already on the device)."), "info")
-        return
-    end
-    local NetworkMgr = require("ui/network/manager")
-    NetworkMgr:runWhenOnline(function()
-        self.plugin.sync:downloadBooksSeq(to_download, 1, function(skipped)
-            self.plugin:notify(_("Downloads finished."), "info")
-            self:updateItems()
-        end)
-    end)
+    SeriesActions.download_books(self.plugin, books, { changed = function() self:updateItems() end })
 end
 
 -- ---------------------------------------------------------------------------
 -- Hold menus
 -- ---------------------------------------------------------------------------
 
+-- A series gone from the library (or from Favourites) leaves the list being looked at, and every list underneath
+-- it that would show it again on the way back.
+function UchiBrowser:_dropSeries(series_id)
+    local function drop(items)
+        if type(items) ~= "table" then return end
+        for i = #items, 1, -1 do
+            local e = items[i]
+            if e and ((e.series and e.series.id == series_id) or (e.book and e.book.seriesId == series_id and e.cover_type ~= "series")) then
+                table.remove(items, i)
+            end
+        end
+    end
+    drop(self.item_table)
+    for _i, path in ipairs(self.paths or {}) do drop(path.item_table) end
+    self:updateItems()
+end
+
+-- What changed about a series from its hold menu, as far as the list on screen is concerned.
+function UchiBrowser:_seriesChanged(what, series)
+    if what == "removed" and series then
+        self:_dropSeries(series.id)
+    elseif what == "favorite" and series and self.catalog_title == self.plugin.i18n._("Favourites") and not SeriesActions.is_favorite(series) then
+        self:_dropSeries(series.id)
+    elseif #self.paths == 0 then
+        self:_reloadHome(true)
+    else
+        local here = self.paths[#self.paths]
+        if what == "read" and here and here.opts and here.opts.series and series and here.opts.series.id == series.id then
+            -- The chapter rows carry their read state; load them again.
+            self:onReturn()
+            self:showBooksInSeries(here.opts.series, here.opts.read_status)
+        else
+            self:updateItems()
+        end
+    end
+end
+
+function UchiBrowser:_seriesHooks()
+    return {
+        changed = function(what, series) self:_seriesChanged(what, series) end,
+        open_book = function(book) self:onBookSelect(book) end,
+        open_library = function(series)
+            local res = self.plugin.api:get_libraries()
+            local libs = type(res) == "table" and (res.content or res) or {}
+            local lib = { id = series.libraryId }
+            for _i, l in ipairs(libs) do
+                if tostring(l.id) == tostring(series.libraryId) then lib = l break end
+            end
+            self:showSeriesInLibrary(lib)
+        end,
+    }
+end
+
 function UchiBrowser:onSeriesHold(entry)
-    local _ = self.plugin.i18n._
-    local T = self.plugin.i18n.T
     local ButtonDialog = require("ui/widget/buttondialog")
     local series = entry.series
     if not series or not series.id then return end
-    local title = series_title(series)
     local dialog
-    local is_fav = (series.yomi and series.yomi.favorite == true) or series.favorite == true
-    dialog = ButtonDialog:new{
-        title = title,
-        shrink_unneeded_width = true,
-        buttons = {
-            { { text = _("Download next unread chapters..."), align = "left", callback = function()
-                UIManager:close(dialog)
-                self:promptCount(_("How many chapters?"), 5, _("Download"), function(n)
-                    local NetworkMgr = require("ui/network/manager")
-                    NetworkMgr:runWhenOnline(function()
-                        self:_downloadBookList(self.plugin.sync:getNextUnreadBooksInSeries(series.id, n))
-                    end)
-                end)
-            end } },
-            { { text = is_fav and _("Remove from favourites") or _("Add to favourites"), align = "left", callback = function()
-                UIManager:close(dialog)
-                local ok
-                if is_fav then ok = self.plugin.api:remove_favorite(series.id) else ok = self.plugin.api:add_favorite(series.id) end
-                if ok then
-                    series.yomi = series.yomi or {}
-                    series.yomi.favorite = not is_fav
-                    self.plugin:notify(is_fav and _("Removed from favourites") or _("Added to favourites"), "info")
-                else
-                    self.plugin:notify(_("Could not update favourites"), "error")
-                end
-            end } },
-            { { text = _("Mark all chapters read"), align = "left", callback = function()
-                UIManager:close(dialog)
-                local ConfirmBox = require("ui/widget/confirmbox")
-                UIManager:show(ConfirmBox:new{
-                    text = T(_("Mark every chapter of %1 as read on Uchiyomi?"), title),
-                    ok_callback = function()
-                        local n = 0
-                        for _i, b in ipairs(self.plugin.api:get_all_series_books(series.id) or {}) do
-                            if self.plugin.sync:setBookRead(b, true) then n = n + 1 end
-                        end
-                        self.plugin:notify(T(_("Marked %1 chapter(s) read"), n), "info")
-                        self:updateItems()
-                    end,
-                })
-            end } },
-            { { text = _("Cancel"), align = "center", callback = function() UIManager:close(dialog) end } },
-        },
-    }
+    local buttons = SeriesActions.rows(self.plugin, series, self:_seriesHooks(), function() UIManager:close(dialog) end)
+    table.insert(buttons, { { text = self.plugin.i18n._("Cancel"), align = "center", callback = function() UIManager:close(dialog) end } })
+    dialog = ButtonDialog:new{ title = series_title(series), shrink_unneeded_width = true, buttons = buttons }
     UIManager:show(dialog)
 end
 
@@ -1282,6 +1276,17 @@ function UchiBrowser:onMenuHold(entry)
     self:onChapterHold(entry)
 end
 
+-- The series a chapter belongs to, as the server describes it (the chapter only carries its id and title).
+function UchiBrowser:_seriesOfBook(book)
+    if type(book.__series) == "table" and book.__series.id then return book.__series end
+    local series, err = self.plugin.api:get_series(book.seriesId)
+    if type(series) ~= "table" or not series.id then
+        self.plugin:notify(self.plugin.i18n.T(self.plugin.i18n._("Could not load the series: %1"), tostring(err or "?")), "error")
+        return nil
+    end
+    return series
+end
+
 -- The full chapter action sheet (Open/Download/Stream/mark read/delete).
 -- Called directly for a hold anywhere other than a Home shelf card, and
 -- from onHomeCardHold's "More..." row.
@@ -1334,6 +1339,22 @@ function UchiBrowser:onChapterHold(entry)
                 self.plugin:saveSettings()
                 self:updateItems()
             end
+        end } })
+    end
+    -- Chapters turn up outside their series (new chapters, bookmarks, history, Keep reading): from here the series
+    -- is one tap away, and so are its actions.
+    local sid = book.seriesId
+    local here = self.paths[#self.paths]
+    local in_series = here and here.opts and here.opts.series and here.opts.series.id == sid
+    if sid and not in_series then
+        table.insert(buttons, { { text = _("Open series"), align = "left", callback = function()
+            UIManager:close(dialog)
+            local series = self:_seriesOfBook(book)
+            if series then self:showBooksInSeries(series) end
+        end }, { text = _("Series actions..."), align = "left", callback = function()
+            UIManager:close(dialog)
+            local series = self:_seriesOfBook(book)
+            if series then self:onSeriesHold({ series = series, cover_id = series.id }) end
         end } })
     end
     table.insert(buttons, { { text = _("Cancel"), align = "center", callback = function() UIManager:close(dialog) end } })

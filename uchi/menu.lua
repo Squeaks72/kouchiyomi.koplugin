@@ -725,6 +725,19 @@ function Menu:layoutMenu()
     local p = self.plugin
     return {
         {
+            text = _("Uchiyomi icon in the top menu bar"),
+            help_text = _("Adds an Uchiyomi icon to the row of tabs at the top of KOReader's menu, in the reader and in the file browser. In a chapter it opens a sheet: back to the series page or its library, the previous or next chapter, favourite, add to a list, and the rest of the series actions. Elsewhere it opens the browser's sections. Takes effect the next time the menu is opened."),
+            checked_func = function() return p.settings.menu_bar_icon ~= false end,
+            keep_menu_open = true,
+            callback = function()
+                p.settings.menu_bar_icon = not (p.settings.menu_bar_icon ~= false)
+                p:saveSettings()
+                require("uchi/menu_pin").refresh(p.settings.menu_bar_icon)
+                -- The menu rebuilds from the rewritten order the next time it opens.
+                if p.ui and p.ui.menu then p.ui.menu.tab_item_table = nil end
+            end,
+        },
+        {
             text = _("BookOrbit-style settings"),
             help_text = _("When the BookOrbit plugin is installed, these settings are drawn in its style: grouped cards, switches and radio dots. Off (or without BookOrbit) they use KOReader's own touch menu. Takes effect the next time settings are opened."),
             enabled_func = function() return require("uchi/ui_theme").available end,
@@ -811,7 +824,7 @@ function Menu:updateMenu()
     }
 end
 
-function Menu:openBrowser(offline)
+function Menu:openBrowser(offline, on_ready)
     local Browser = require("uchi/browser")
     local msg
     if not offline then
@@ -824,6 +837,8 @@ function Menu:openBrowser(offline)
     if msg then UIManager:close(msg) end
     UIManager:show(browser)
     if offline then browser:showOfflineLibrary() end
+    -- Somewhere other than the home screen (the menu bar sheet opens a series or a library straight away).
+    if on_ready then on_ready(browser) end
 end
 
 function Menu:promptInput(title, key, is_number, touchmenu_instance)

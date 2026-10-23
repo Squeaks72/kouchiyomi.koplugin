@@ -12,22 +12,20 @@
 
 local Sheet = {}
 
---- Show the settings. `open_index` (optional) opens that top-level row's submenu straight away.
-function Sheet.open(plugin, open_index)
-    if not (plugin and plugin.menu and plugin.menu.createMainMenu) then return false end
-    -- With BookOrbit installed the settings are drawn in its style (uchi/ui_settings_page); that page needs the
-    -- toolkit, and falls back to the plain touch menu below if it cannot be built.
+--- Show a tree of items (title, sub, items, name) in the best container there is: BookOrbit's page when BookOrbit is
+-- installed, else a one-tab TouchMenu in the container KOReader's own menus use.
+function Sheet.openItems(plugin, opts, open_index)
     if require("uchi/ui_theme").available and plugin.settings.bookorbit_settings_style ~= false then
-        local ok, opened = pcall(function() return require("uchi/ui_settings_page").open(plugin, open_index) end)
+        local ok, opened = pcall(function() return require("uchi/ui_settings_page").openItems(plugin, opts, open_index) end)
         if ok and opened then return true end
-        if not ok then require("logger").warn("kouchiyomi: BookOrbit-styled settings failed:", tostring(opened)) end
+        if not ok then require("logger").warn("kouchiyomi: BookOrbit-styled page failed:", tostring(opened)) end
     end
     local CenterContainer = require("ui/widget/container/centercontainer")
     local TouchMenu = require("ui/widget/touchmenu")
     local UIManager = require("ui/uimanager")
     local Screen = require("device").screen
 
-    local items = plugin.menu:createMainMenu()
+    local items = opts.items
     -- A tab is its icon plus the rows as its array part.
     local tab = { icon = "appbar.settings" }
     for i, item in ipairs(items) do tab[i] = item end
@@ -46,6 +44,15 @@ function Sheet.open(plugin, open_index)
         pcall(menu.onMenuSelect, menu, items[open_index])
     end
     return true
+end
+
+--- Show the settings. `open_index` (optional) opens that top-level row's submenu straight away.
+function Sheet.open(plugin, open_index)
+    if not (plugin and plugin.menu and plugin.menu.createMainMenu) then return false end
+    return Sheet.openItems(plugin, {
+        title = plugin.i18n._("Uchiyomi"),
+        items = plugin.menu:createMainMenu(),
+    }, open_index)
 end
 
 return Sheet

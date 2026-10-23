@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.25.0 — 2026-10-23
+- **An Uchiyomi icon in KOReader's top menu bar** (reader and file browser; Settings > Layout > "Uchiyomi icon in the
+  top menu bar" turns it off). Like BookOrbit's, it is a tab that acts as a button. In a chapter it opens a sheet:
+  Series page, Library (named), Browse Uchiyomi (home, new chapters, favourites, bookmarks, libraries, search,
+  downloads), Previous chapter, Mark read and go to next chapter, Right-to-left page turning, Rotate screen, Sync
+  progress now, Add to / Remove from favourites, Add to list, More series actions. Elsewhere it lists the browser's
+  sections. The series is looked up with short timeouts and only when online; opening the sheet never waits on Wi-Fi.
+  It shares the order files BookOrbit keeps (`reader_menu_order.lua`, `filemanager_menu_order.lua`) without fighting it:
+  an existing file is edited in place, BookOrbit's generated-file marker is dropped so it stops rewriting it, and our
+  tab goes just before BookOrbit's.
+- **A fuller hold menu on every series thumbnail**, shared with the series page's "Series actions...": Continue
+  reading, Download next unread chapters, Add to / Remove from favourites, **Add to list** (or a new list), Mark all read
+  / **unread** (one request for the whole series instead of one per chapter, then the downloaded copies follow),
+  Series info, Open library, **Delete N downloaded chapters from this device**, Check for new chapters, Monitor / Stop
+  monitoring, and **Remove from library**. The view follows: a removed series leaves the list on screen, and unfavouriting
+  from Favourites drops it from Favourites.
+- **Remove from library** hides the series on the server (files, progress and favourites stay; Admin > Library puts it
+  back). It, Check and Monitor are admin-only routes, which this device's read + write token is refused on purpose. They
+  try the token first, and on a refusal ask for the admin password (and a 2FA code if enabled), use the 15-minute session
+  it returns for as long as it lasts, and keep it in memory only: nothing admin-scoped is stored on the device.
+- Hold a chapter anywhere outside its series (new chapters, bookmarks, history, Keep reading > More...) and Open series /
+  Series actions are there too.
+
 ## 0.24.0 — 2026-10-21
 - **Tap zones get a page of their own, with pictures.** With BookOrbit installed, Settings > Reading > Tap zones opens a
   BookOrbit-styled page: one card for right-to-left and one for left-to-right, each with a drawing of the screen

@@ -170,6 +170,8 @@ function UchiyomiAPI:request(path, method, body, opts)
     local url = self.base_url .. path
     local post_data = body and JSON.encode(body) or nil
     local headers = self:get_headers()
+    -- One call on another credential (an admin session for the few admin-only actions); nothing is stored.
+    if opts.token then headers["Authorization"] = "Bearer " .. opts.token end
     -- Uchiyomi rejects an empty body when a JSON content type is declared.
     if not post_data then headers["Content-Type"] = nil end
     -- Background catch-up work (see Plugin:runBackground) runs in "fast" mode: short timeouts, and after
@@ -289,6 +291,16 @@ function UchiyomiAPI:create_api_token(name, show_adult, expires_in_days)
         return nil, err or "Token creation failed"
     end
     return res.token, res.id
+end
+
+--- Log in for ONE admin action: the session token is returned and kept nowhere on this connector, so the token
+-- the device normally runs on (read + write, which the server's admin routes refuse) is untouched.
+function UchiyomiAPI:admin_login(username, password, totp)
+    local saved_token, saved_session, saved_user = self.api_token, self.session_token, self.username
+    local res, err = self:login(username, password, totp)
+    self.api_token, self.session_token, self.username = saved_token, saved_session, saved_user
+    if not res then return nil, err end
+    return res.accessToken
 end
 
 function UchiyomiAPI:get_opds_token_status()
@@ -654,6 +666,43 @@ end
 
 function UchiyomiAPI:remove_favorite(series_id)
     return self:request("/api/favorites/" .. escape(series_id), "DELETE")
+end
+
+--- Mark every chapter of some series read or unread in one request (no reading statistics are written).
+function UchiyomiAPI:set_series_read(series_ids, completed)
+    return self:request("/api/library/bulk/read", "POST", { seriesIds = series_ids, completed = completed and true or false }, { timeout = 30, total_timeout = 60 })
+end
+
+--- The caller's own (manual) lists: { content = { { id=, name=, ... } } }.
+function UchiyomiAPI:get_lists()
+    return self:request(self:listing("/api/collections"))
+end
+
+function UchiyomiAPI:create_list(name)
+    return self:request("/api/collections", "POST", { name = name })
+end
+
+function UchiyomiAPI:add_to_list(list_id, series_id)
+    return self:request("/api/collections/" .. escape(list_id) .. "/items", "POST", { seriesId = series_id })
+end
+
+-- Admin-only actions. The server refuses them on a read + write token, so each takes `token` (an admin session
+-- from admin_login) and sends it for that one call; nil uses the device's own token.
+
+--- "Remove from library": hides the series. Files, progress and favourites stay; Admin > Library puts it back.
+function UchiyomiAPI:admin_hide_series(series_id, token)
+    return self:request("/api/admin/series/" .. escape(series_id), "DELETE", nil, { token = token })
+end
+
+--- Start "check for new chapters" for one series (the server runs it in the background).
+function UchiyomiAPI:admin_check_series(series_id, token)
+    return self:request("/api/admin/series/" .. escape(series_id) .. "/check", "POST", nil, { token = token })
+end
+
+--- Monitor (auto-update) or stop monitoring a series.
+function UchiyomiAPI:admin_set_monitored(series_id, monitored, token)
+    return self:request("/api/admin/series/bulk/auto-update", "POST",
+        { seriesIds = { series_id }, autoUpdate = monitored and true or false }, { token = token })
 end
 
 --- All of the caller's page bookmarks:

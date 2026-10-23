@@ -21,6 +21,18 @@ Davis), reworked for Uchiyomi's native API.
   Settings ▸ "Choose home screen lists" (also reachable from Browse) picks which lists show as shelves. Hold a Keep
   reading card for quick actions: remove it from the row without marking it read, or mark read (which advances the
   card to the series' next unread chapter instead of just dropping it).
+- **An Uchiyomi icon in KOReader's top menu bar**, in the reader and the file browser (Settings ▸ Layout turns it
+  off). In a chapter it opens a sheet: **Series page** and **Library** (straight back to where this series lives),
+  Browse (home, new chapters, favourites, bookmarks, libraries, search, downloads), previous chapter, mark read and go
+  to the next, right-to-left page turning, rotate, sync now, favourite, add to a list, and every series action below.
+  Outside a chapter it opens the browser's sections. Drawn in BookOrbit's style when BookOrbit is installed.
+- **Hold a series thumbnail** for: continue reading, download the next unread chapters, favourite, add to a list (or a
+  new one), mark all read / unread (one request), series info, open its library, delete its downloaded chapters from
+  the device, check for new chapters, monitor / stop monitoring, and **remove from library** (hides it on the server;
+  files and progress are kept and an admin can put it back). The last three are Uchiyomi admin actions, which this
+  device's read + write token is refused on purpose: they ask for the admin password once, use the 15-minute session
+  it returns and keep it in memory only. Hold any chapter outside its series (new chapters, bookmarks, Keep reading)
+  for Open series / Series actions.
 - **Read your way**: tap a chapter to download it (default) or stream it from
   the server; the choice is a setting, or ask every time. Hold a chapter for
   download / stream / download this + next N / mark read or unread.

@@ -153,6 +153,8 @@ local DEFAULT_SETTINGS = {
     download_to_subfolder = true,
     max_download_gb = 0,
 
+    menu_bar_icon = true,            -- the Uchiyomi tab in KOReader's top menu bar (uchi/menu_pin, uchi/reader_menu)
+
     cache_covers = true,
     never_update_covers = false,
     show_covers = true,
@@ -189,6 +191,8 @@ function Plugin:init()
     self.stream = Stream:new(self)
     self.menu = SettingsMenu:new(self)
     self.updater = Updater:new(self)
+    -- The tab has to be in the menu-order files before the menu is first built.
+    pcall(require("uchi/menu_pin").ensure, self.settings.menu_bar_icon ~= false)
     self.ui.menu:registerToMainMenu(self)
     self:registerActions()
     local NetworkMgr = require("ui/network/manager")
@@ -623,6 +627,14 @@ function Plugin:addToMainMenu(menu_items)
         keep_menu_open = true,
         sub_item_table_func = function() return self.menu:createMainMenu() end,
     }
+    if require("uchi/reader_menu").enabled(self) then
+        -- A tab that acts as a button, like the reader's file browser tab; uchi/menu_pin lists it in the menu bar.
+        menu_items.kouchiyomi_tab = {
+            icon = require("uchi/reader_menu").iconName(self.path),
+            remember = false,
+            callback = function() require("uchi/reader_menu").onTab(self) end,
+        }
+    end
 end
 
 -- ---------------------------------------------------------------------------
