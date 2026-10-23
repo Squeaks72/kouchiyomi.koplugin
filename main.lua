@@ -75,7 +75,7 @@ local DEFAULT_SETTINGS = {
 
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
-    adult_open_mode = "same",        -- same | download | stream | ask: how an 18+ chapter opens (same = open_mode)
+    stream_adult_libraries = true,   -- a chapter of a series in an 18+ library is always streamed, never downloaded
     auto_advance = true,             -- end of chapter: open the next one without asking when it is at hand
     prev_chapter_on_first_page = true, -- turning back from page 1 opens the previous chapter's last page
     read_ahead = 1,                  -- chapters to download in the background after opening one
@@ -244,24 +244,17 @@ end
     `dir` is the series' readingDirection when we have one, and only "auto" consults it.
 --]]
 --[[
-    How a chapter opens (download | stream | ask): Settings > Reading > "When tapping a chapter", except that an
-    18+ chapter may have a rule of its own ("18+ chapters"), so it can stream while everything else downloads, or
-    the other way round. `series` is optional; without it the series is looked up from the chapter. `offline_only`
-    never asks the server (an unknown series then counts as not 18+, like everywhere else in uchi/adult).
+    How a chapter opens (download | stream | ask): Settings > Reading > "When tapping a chapter", except that a
+    chapter of a series in an 18+ library is always streamed (Settings > Reading > "Stream 18+ library chapters",
+    on by default), so nothing from those libraries lands on the device. Only the LIBRARY decides: the age rating
+    and per-series overrides that hide a series elsewhere do not come into it. `series` is optional; without it
+    the series is looked up. `offline_only` never asks the server (an unknown series then counts as not 18+).
 --]]
 function Plugin:openModeFor(book, series, offline_only)
     local mode = self.settings.open_mode or "download"
-    local adult_mode = self.settings.adult_open_mode or "same"
-    if adult_mode == "same" or not book then return mode end
-    local Adult = require("uchi/adult")
-    local ok, verdict
-    if offline_only and not series then
-        local known = Adult.knownSeries(self, book.seriesId or book.series_id)
-        ok, verdict = true, known
-    else
-        ok, verdict = pcall(Adult.isBook, self, book, series)
-    end
-    if ok and verdict == true then return adult_mode end
+    if self.settings.stream_adult_libraries == false or not book then return mode end
+    local ok, in_adult = pcall(require("uchi/adult").inAdultLibrary, self, book.seriesId or book.series_id, series, offline_only)
+    if ok and in_adult == true then return "stream" end
     return mode
 end
 

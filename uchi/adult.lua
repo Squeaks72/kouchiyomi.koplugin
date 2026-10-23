@@ -117,6 +117,39 @@ function Adult.knownSeries(plugin, series_id)
 end
 
 --[[
+    Is this series in a library flagged 18+? Library only: not the age rating or an admin's per-series override,
+    which Adult.isSeries weighs as well. This is what decides how a chapter opens (always streamed), so it is the
+    one place the library alone counts.
+
+    Answerable offline once the series has been seen: its library id is remembered with the library list's 24 hour
+    cache. `offline_only` never asks the server; an unknown series then answers nil, read as "not 18+".
+]]
+function Adult.inAdultLibrary(plugin, series_id, series, offline_only)
+    local s = plugin.settings
+    local sid = series_id or (type(series) == "table" and series.id)
+    if not sid then return nil end
+    sid = tostring(sid)
+    local lib = type(series) == "table" and series.libraryId or nil
+    if lib then
+        local seen = s.series_library or {}
+        if seen[sid] ~= tostring(lib) then
+            seen[sid] = tostring(lib)
+            s.series_library = seen
+            plugin:saveSettings()
+        end
+    else
+        lib = (s.series_library or {})[sid]
+    end
+    if not lib and not offline_only and plugin.api then
+        local got = plugin.api:get_series(sid)
+        if type(got) == "table" and got.libraryId then return Adult.inAdultLibrary(plugin, sid, got, true) end
+    end
+    if not lib then return nil end
+    local libs = offline_only and (type(s.adult_libraries) == "table" and s.adult_libraries or {}) or Adult.libraryIds(plugin)
+    return libs[tostring(lib)] == true
+end
+
+--[[
     Is the chapter in front of us 18+?
 
     `series` is used when the caller already has it (Sync:downloadBook fetches

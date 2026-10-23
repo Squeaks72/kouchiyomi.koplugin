@@ -272,15 +272,6 @@ function Menu:readingMenu()
             callback = function() p.settings.open_mode = value; p:saveSettings() end,
         }
     end
-    local function adult_mode_item(value, label)
-        return {
-            text = label,
-            checked_func = function() return (p.settings.adult_open_mode or "same") == value end,
-            radio = true,
-            keep_menu_open = true,
-            callback = function() p.settings.adult_open_mode = value; p:saveSettings() end,
-        }
-    end
     -- Every radio row here writes one plugin setting and then hands uchi/sidecar the new seed table, so
     -- the next download already carries it.
     local function pick(key, value, label, default)
@@ -302,11 +293,13 @@ function Menu:readingMenu()
         mode_item("download", _("Download, then open (recommended)")),
         mode_item("stream", _("Stream from the server")),
         mode_item("ask", _("Ask every time")),
-        { text = _("18+ chapters:"), enabled = false },
-        adult_mode_item("same", _("Same as above")),
-        adult_mode_item("download", _("Always download")),
-        adult_mode_item("stream", _("Always stream (nothing kept on the device)")),
-        adult_mode_item("ask", _("Ask every time")),
+        {
+            text = _("Stream 18+ library chapters"),
+            help_text = _("A chapter of any series in a library marked 18+ is always streamed from the server instead of downloaded, whatever the setting above says, so nothing from those libraries is kept on the device. Only the library decides. A series the plugin has not seen yet counts as not 18+ until it has."),
+            checked_func = function() return p.settings.stream_adult_libraries ~= false end,
+            keep_menu_open = true,
+            callback = function() p.settings.stream_adult_libraries = not (p.settings.stream_adult_libraries ~= false); p:saveSettings() end,
+        },
         {
             text = _("Also offer streaming at the end of a chapter"),
             checked_func = function() return p.settings.offer_stream == true end,

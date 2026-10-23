@@ -1108,12 +1108,11 @@ function Sync:readAhead(book_id, depth)
     -- did it anyway: the next chapters were downloaded whatever the open mode
     -- said. Remembering the next chapter is still worth doing offline, so only
     -- the fetching stops.
-    -- The chapters ahead are the open one's series, so its 18+ rule applies (answered from what is known: this runs
-    -- on the open path and must not wait on the server).
+    -- The chapters ahead are the open one's series, so a series in an 18+ library fetches nothing (answered from what
+    -- is known: this runs on the open path and must not wait on the server).
     local doc = self.plugin.ui and self.plugin.ui.document
-    local adult = doc and doc.file and require("uchi/adult").isPath(self.plugin, doc.file, true) == true
-    local mode = self.plugin.settings.open_mode or "download"
-    if adult and (self.plugin.settings.adult_open_mode or "same") ~= "same" then mode = self.plugin.settings.adult_open_mode end
+    local sid = doc and doc.file and self:getSeriesIdForDoc(doc.file)
+    local mode = self.plugin:openModeFor({ seriesId = sid }, nil, true)
     local fetch = mode ~= "stream"
     local cur = book_id
     for i = 1, math.max(1, depth) do

@@ -140,26 +140,23 @@ assert(measure(fake_doc(1, {2.49})) == false, "just under the threshold")
 assert(measure(fake_doc(1, {2.50})) == true, "exactly at it")
 assert(measure({}) == nil, "a document that cannot say says nothing")
 
--- 9. how a chapter opens: the 18+ rule is independent of the ordinary one
+-- 9. how a chapter opens: a series in an 18+ library always streams, the library alone deciding
 local Adult = require("uchi/adult")
-local adult_ids = { x = true }
-Adult.isBook = function(_plugin, book) return adult_ids[book.seriesId] == true end
-Adult.knownSeries = function(_plugin, id) if id == nil then return nil end return adult_ids[id] == true end
+local libs_of = { a = "L1", x = "L2" }
+p.api = { get_series = function(_s, id) return libs_of[id] and { id = id, libraryId = libs_of[id] } or nil end }
+local function load(settings) store = settings; p:loadSettings(); p.settings.adult_libraries = { L2 = true }; p.settings.adult_libraries_at = os.time() end
 local normal, hot = { seriesId = "a" }, { seriesId = "x" }
-store = { open_mode = "download" }
-p:loadSettings()
-assert(p:openModeFor(hot) == "download" and p:openModeFor(normal) == "download", "default: 18+ follows the ordinary mode")
-store = { open_mode = "download", adult_open_mode = "stream" }
-p:loadSettings()
-assert(p:openModeFor(hot) == "stream", "18+ streams while the rest downloads")
-assert(p:openModeFor(normal) == "download", "and the rest still downloads")
-store = { open_mode = "stream", adult_open_mode = "download" }
-p:loadSettings()
-assert(p:openModeFor(hot) == "download" and p:openModeFor(normal) == "stream", "the other way round")
-assert(p:openModeFor(hot, nil, true) == "download", "offline-only asks only what is known")
-assert(p:openModeFor(nil) == "stream", "no chapter, ordinary mode")
-store = { open_mode = "download", adult_open_mode = "ask" }
-p:loadSettings()
-assert(p:openModeFor(hot) == "ask", "18+ can ask every time")
+load({ open_mode = "download" })
+assert(p:openModeFor(hot) == "stream", "18+ library streams while the rest downloads")
+assert(p:openModeFor(normal) == "download", "an ordinary library still downloads")
+load({ open_mode = "ask" })
+assert(p:openModeFor(hot) == "stream" and p:openModeFor(normal) == "ask", "streams even when the ordinary mode asks")
+assert(p:openModeFor(hot, nil, true) == "stream", "remembered, so answerable offline")
+assert(p:openModeFor({ seriesId = "never" }, nil, true) == "ask", "an unseen series offline counts as not 18+")
+load({ open_mode = "download", stream_adult_libraries = false })
+assert(p:openModeFor(hot) == "download", "switched off: the ordinary mode")
+load({ open_mode = "download" })
+assert(p:openModeFor(nil) == "download", "no chapter, ordinary mode")
+assert(p:openModeFor({ seriesId = "a" }, { id = "a", libraryId = "L2" }) == "stream", "a given series DTO is trusted over a lookup")
 
 print("all reading-direction / chapter-default assertions passed")
