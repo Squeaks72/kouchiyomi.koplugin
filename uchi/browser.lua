@@ -1028,7 +1028,7 @@ function UchiBrowser:onBookSelect(book, goto_page)
         self:_openLocal(local_path, goto_page)
         return
     end
-    local mode = self.plugin.settings.open_mode or "download"
+    local mode = self.plugin:openModeFor(book, book.__series)
     if mode == "download" then
         self:_download(book, true, goto_page)
     elseif mode == "stream" then

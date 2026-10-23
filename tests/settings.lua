@@ -140,4 +140,26 @@ assert(measure(fake_doc(1, {2.49})) == false, "just under the threshold")
 assert(measure(fake_doc(1, {2.50})) == true, "exactly at it")
 assert(measure({}) == nil, "a document that cannot say says nothing")
 
+-- 9. how a chapter opens: the 18+ rule is independent of the ordinary one
+local Adult = require("uchi/adult")
+local adult_ids = { x = true }
+Adult.isBook = function(_plugin, book) return adult_ids[book.seriesId] == true end
+Adult.knownSeries = function(_plugin, id) if id == nil then return nil end return adult_ids[id] == true end
+local normal, hot = { seriesId = "a" }, { seriesId = "x" }
+store = { open_mode = "download" }
+p:loadSettings()
+assert(p:openModeFor(hot) == "download" and p:openModeFor(normal) == "download", "default: 18+ follows the ordinary mode")
+store = { open_mode = "download", adult_open_mode = "stream" }
+p:loadSettings()
+assert(p:openModeFor(hot) == "stream", "18+ streams while the rest downloads")
+assert(p:openModeFor(normal) == "download", "and the rest still downloads")
+store = { open_mode = "stream", adult_open_mode = "download" }
+p:loadSettings()
+assert(p:openModeFor(hot) == "download" and p:openModeFor(normal) == "stream", "the other way round")
+assert(p:openModeFor(hot, nil, true) == "download", "offline-only asks only what is known")
+assert(p:openModeFor(nil) == "stream", "no chapter, ordinary mode")
+store = { open_mode = "download", adult_open_mode = "ask" }
+p:loadSettings()
+assert(p:openModeFor(hot) == "ask", "18+ can ask every time")
+
 print("all reading-direction / chapter-default assertions passed")

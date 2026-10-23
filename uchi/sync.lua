@@ -519,7 +519,7 @@ function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
             open_at(local_path)
         elseif self:isDownloading(target.id) then
             self:openWhenReady(target, local_path, open_at)
-        elseif (self.plugin.settings.open_mode or "download") == "stream" then
+        elseif self.plugin:openModeFor(target) == "stream" then
             -- Stream:open reads the server position itself when given no page.
             self.plugin.stream:open(target, page)
         else
@@ -538,7 +538,7 @@ function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
     local ConfirmBox = require("ui/widget/confirmbox")
     local text = T(_("Uchiyomi is further along in this series:\n%1\n\nGo there?"), where)
     if not on_device then
-        text = text .. "\n\n" .. ((self.plugin.settings.open_mode or "download") == "stream"
+        text = text .. "\n\n" .. (self.plugin:openModeFor(target) == "stream"
             and _("It will be streamed.") or _("It is not on this device yet and will be downloaded."))
     end
     UIManager:show(ConfirmBox:new{
@@ -1108,7 +1108,13 @@ function Sync:readAhead(book_id, depth)
     -- did it anyway: the next chapters were downloaded whatever the open mode
     -- said. Remembering the next chapter is still worth doing offline, so only
     -- the fetching stops.
-    local fetch = (self.plugin.settings.open_mode or "download") ~= "stream"
+    -- The chapters ahead are the open one's series, so its 18+ rule applies (answered from what is known: this runs
+    -- on the open path and must not wait on the server).
+    local doc = self.plugin.ui and self.plugin.ui.document
+    local adult = doc and doc.file and require("uchi/adult").isPath(self.plugin, doc.file, true) == true
+    local mode = self.plugin.settings.open_mode or "download"
+    if adult and (self.plugin.settings.adult_open_mode or "same") ~= "same" then mode = self.plugin.settings.adult_open_mode end
+    local fetch = mode ~= "stream"
     local cur = book_id
     for i = 1, math.max(1, depth) do
         local nb = self.plugin.api:get_next_book(cur)
@@ -1512,7 +1518,7 @@ function Sync:promptNextChapter(ui, show_native)
         end
     end
 
-    local mode = self.plugin.settings.open_mode or "download"
+    local mode = self.plugin:openModeFor(next_book or current)
 
     -- 4. Auto-advance: no dialog when the way forward is clear. The dialog
     --    is kept for the cases that need a decision (offline and missing,
@@ -1685,7 +1691,7 @@ function Sync:openPreviousChapter(ui)
         self.plugin:notify(T(_("%1 is not on this device."), Labels.chapter(prev)), "info")
         return true
     end
-    if (self.plugin.settings.open_mode or "download") == "stream" then
+    if self.plugin:openModeFor(prev) == "stream" then
         -- The streamed chapter starts at its last page too; Stream:open clamps.
         self.plugin.stream:open(prev, (prev.media and tonumber(prev.media.pagesCount)) or 99999)
     else

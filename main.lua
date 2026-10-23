@@ -75,6 +75,7 @@ local DEFAULT_SETTINGS = {
 
     open_mode = "download",          -- download | stream | ask
     offer_stream = false,
+    adult_open_mode = "same",        -- same | download | stream | ask: how an 18+ chapter opens (same = open_mode)
     auto_advance = true,             -- end of chapter: open the next one without asking when it is at hand
     prev_chapter_on_first_page = true, -- turning back from page 1 opens the previous chapter's last page
     read_ahead = 1,                  -- chapters to download in the background after opening one
@@ -242,6 +243,28 @@ end
 
     `dir` is the series' readingDirection when we have one, and only "auto" consults it.
 --]]
+--[[
+    How a chapter opens (download | stream | ask): Settings > Reading > "When tapping a chapter", except that an
+    18+ chapter may have a rule of its own ("18+ chapters"), so it can stream while everything else downloads, or
+    the other way round. `series` is optional; without it the series is looked up from the chapter. `offline_only`
+    never asks the server (an unknown series then counts as not 18+, like everywhere else in uchi/adult).
+--]]
+function Plugin:openModeFor(book, series, offline_only)
+    local mode = self.settings.open_mode or "download"
+    local adult_mode = self.settings.adult_open_mode or "same"
+    if adult_mode == "same" or not book then return mode end
+    local Adult = require("uchi/adult")
+    local ok, verdict
+    if offline_only and not series then
+        local known = Adult.knownSeries(self, book.seriesId or book.series_id)
+        ok, verdict = true, known
+    else
+        ok, verdict = pcall(Adult.isBook, self, book, series)
+    end
+    if ok and verdict == true then return adult_mode end
+    return mode
+end
+
 function Plugin:wantInverseReadingOrder(dir)
     local mode = self.settings and self.settings.reading_direction or "rtl"
     if mode == "rtl" then return true end

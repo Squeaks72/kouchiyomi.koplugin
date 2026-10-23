@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.26.0 — 2026-10-23
+- **18+ chapters get their own open mode** (Settings > Reading > "18+ chapters:"): Same as above (the default, nothing
+  changes), Always download, Always stream (nothing kept on the device), or Ask every time. It is independent of "When
+  tapping a chapter", so 18+ can stream while everything else downloads, or the other way round. It applies wherever
+  a chapter is opened for you: tapping one in the browser, the end-of-chapter next chapter, going back to the previous
+  chapter, series catch-up, and read-ahead (an 18+ series on "stream" fetches nothing ahead). A series that cannot be
+  classified yet (offline, never seen) counts as not 18+, as everywhere else.
+
 ## 0.25.0 — 2026-10-23
 - **An Uchiyomi icon in KOReader's top menu bar** (reader and file browser; Settings > Layout > "Uchiyomi icon in the
   top menu bar" turns it off). Like BookOrbit's, it is a tab that acts as a button. In a chapter it opens a sheet:
