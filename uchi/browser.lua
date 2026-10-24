@@ -871,6 +871,38 @@ function UchiBrowser:showBooksInSeries(series, read_status)
         empty_text = _("No chapters"),
         push_opts = { is_series = true, series = series, read_status = read_status },
     }
+    self:_scrollToUpNext(series)
+end
+
+--- Land the chapter list on the page holding Uchiyomi's "up next" chapter for
+-- this series instead of always on chapter 1. Best effort: any failure leaves the list at the top.
+function UchiBrowser:_scrollToUpNext(series)
+    local ok, err = pcall(function()
+        local up = self.plugin.api:get_up_next(series.id)
+        if type(up) ~= "table" or not up.id then return end
+        local p = self._pagination
+        local size = p and p.page_size or #self.item_table
+        local function find()
+            for i, it in ipairs(self.item_table) do
+                if it.book and it.book.id == up.id then return i end
+            end
+        end
+        local idx = find()
+        -- Read-status filters can hide it; not found there means leave the top.
+        while not idx and p and p.server_page + 1 < p.total_pages do
+            p.server_page = p.server_page + 1
+            for _i, item in ipairs(p.loader(p.server_page, p.page_size) or {}) do
+                table.insert(self.item_table, item)
+            end
+            idx = find()
+        end
+        if not idx then return end
+        local page = math.floor((idx - 1) / size) + 1
+        if page <= 1 then return end
+        self.page = page
+        self:updateItems()
+    end)
+    if not ok then require("logger").warn("kouchiyomi: up-next scroll failed", tostring(err)) end
 end
 
 function UchiBrowser:showFilterDialog(series, current)

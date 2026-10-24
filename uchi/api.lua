@@ -607,6 +607,28 @@ function UchiyomiAPI:get_series_position(series_id)
     return nil, "not in recent reading"
 end
 
+--[[
+    The chapter Uchiyomi itself lists as "up next" for a series: its Keep reading
+    (onDeck) entry -- the chapter part-way through, or the next unread one after a
+    finished chapter. This is what the web app and the Keep reading shelf here
+    show, so opening a series lands on the same chapter. Falls back to the
+    reader's position (history) for a series that has dropped off that rail.
+    Returns the book plus where it came from, or nil plus a reason.
+--]]
+function UchiyomiAPI:get_up_next(series_id)
+    if not series_id then return nil, "no series" end
+    local want = tostring(series_id)
+    local home = self:get_home()
+    if type(home) == "table" and type(home.onDeck) == "table" then
+        for _i, b in ipairs(home.onDeck) do
+            if type(b) == "table" and b.id and tostring(b.seriesId) == want then
+                return b, "on-deck"
+            end
+        end
+    end
+    return self:get_series_position(series_id)
+end
+
 --- Is `book` a later chapter of its series than `other`? nil when the numbers
 -- cannot say: missing on either side, or the same number on two files (this
 -- library has " (2)" copies, and only the file name tells those apart).

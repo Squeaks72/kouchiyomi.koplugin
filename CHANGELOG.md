@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.28.0 — 2026-10-24
+- **Opening a series lands on its "up next" chapter.** The chapter list used to open at chapter 1 whatever you had read;
+  it now scrolls to the page holding the chapter Uchiyomi lists as up next (its Keep reading entry: the chapter you
+  are part-way through, or the next unread one), falling back to your reading position from history. Best effort: if
+  the server cannot say, the list stays at the top.
+
 ## 0.27.0 — 2026-10-23
 - **A chapter of a series in an 18+ library is always streamed**, never downloaded (Settings > Reading > "Stream 18+
   library chapters", on by default; off restores the ordinary "When tapping a chapter" for them). Only the LIBRARY

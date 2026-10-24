@@ -148,5 +148,20 @@ check("a missing number cannot say",
 check("decimal chapters compare as numbers",
       API.chapter_is_after(chapter(4.5), chapter(4)) == true)
 
+-- 9. get_up_next: Uchiyomi's own on-deck chapter wins over the history position,
+--    so opening a series lands where the web app's Keep reading says.
+api = api_for{
+    home = { onDeck = { chapter(3, nil) } },
+    history = { content = { { series_id = "s1", book_id = "b12", page = 8, completed = false } } },
+    books = { b12 = chapter(12, { page = 8, completed = false }) },
+}
+pos, src = api:get_up_next("s1")
+check("up next is the on-deck chapter", pos and pos.id == "b3" and src == "on-deck", src)
+pos, src = api_for{ home = { onDeck = {} },
+    history = { content = { { series_id = "s1", book_id = "b7", page = 4, completed = false } } },
+    books = { b7 = chapter(7, { page = 4, completed = false }) } }:get_up_next("s1")
+check("up next falls back to history", pos and pos.id == "b7" and src == "history", src)
+check("up next without a series", (API:new("http://stub", {})):get_up_next(nil) == nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
