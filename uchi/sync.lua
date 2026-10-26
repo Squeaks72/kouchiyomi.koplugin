@@ -552,8 +552,8 @@ function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
         cancel_callback = function()
             Sync.catchup_declined[declined_key] = true
             self.plugin.last_catchup = "offered " .. where .. "; stayed here"
-            -- Staying: reconcile the chapter that is actually open after all.
-            if not is_manual then self:pullProgress(ui, false) end
+            -- Staying means staying: no second "further along" prompt for a
+            -- page of this chapter.
         end,
     })
     return true
