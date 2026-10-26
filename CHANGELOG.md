@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.27.1 — 2026-10-26
+- Uchiyomi being further along in the series is now asked about once: tapping "Stay here" no longer brings up a
+  second "further along, jump to page N?" prompt for the open chapter.
+
 ## 0.27.0 — 2026-10-23
 - **A chapter of a series in an 18+ library is always streamed**, never downloaded (Settings > Reading > "Stream 18+
   library chapters", on by default; off restores the ordinary "When tapping a chapter" for them). Only the LIBRARY
