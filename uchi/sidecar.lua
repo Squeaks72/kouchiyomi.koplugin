@@ -8,6 +8,7 @@
 --]]
 
 local logger = require("logger")
+local Labels = require("uchi/labels")
 
 local Sidecar = {}
 
@@ -145,6 +146,8 @@ function Sidecar.saveBookMetadata(filepath, book, series_title, series)
         doc_props = cds:readSetting("doc_props") or {}
     end
     local title = (book.metadata and book.metadata.title) or book.name
+    -- The series is its own property below; a chapter's title does not need to lead with it.
+    title = Labels.stripSeries(title, series_title or book.seriesTitle)
     if title and title ~= "" then
         custom_props.title = title
         doc_props.title = title

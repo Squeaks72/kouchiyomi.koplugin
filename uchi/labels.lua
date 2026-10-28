@@ -34,8 +34,46 @@ local function number_of(book)
     return n
 end
 
-function Labels.rawTitle(book)
-    return (book.metadata and book.metadata.title ~= "" and book.metadata.title) or book.name or "?"
+-- Lower-cased, with spaces and punctuation gone: "Boruto: Naruto" and the folder name "Boruto - Naruto" are one key,
+-- and so are "College?" and the "College_" a file system made of it.
+local function key(s)
+    return (tostring(s or ""):lower():gsub("[%s%p]+", ""))
+end
+
+--- A chapter's title without the series it leads with. Uchiyomi can name a file "Blue Box - Chapter 211" (SERIES_IN_NAMES),
+-- and the title the server answers with is that file name; under a "Blue Box" heading, in a chapter list or on a
+-- screen that already says the series, the prefix is noise, and it hides the one thing worth reading: the chapter.
+--   "Blue Box - Chapter 211" -> "Chapter 211"        (series known, spelt the same)
+--   "Boruto - Naruto Next Generations - Chapter 64"  (series unknown or spelt differently: the LAST " - " splits it,
+--       when what follows is a word and a number and what leads it is not itself a chapter)
+-- Anything else comes back unchanged, so a plain "Chapter 211" or a source's own "Ch. 5 - The Storm" is left alone.
+function Labels.stripSeries(title, series_title)
+    if type(title) ~= "string" or title == "" then return title end
+    if type(series_title) == "string" and series_title ~= "" then
+        if title:sub(1, #series_title):lower() == series_title:lower() then
+            local rest = title:sub(#series_title + 1)
+            local tail = rest:match("^%s*%-+%s*(%S.*)$") or rest:match("^%s*\226\128\147%s*(%S.*)$")
+                or rest:match("^%s*\226\128\148%s*(%S.*)$") or rest:match("^%s*:%s*(%S.*)$")
+                or rest:match("^%s*\194\183%s*(%S.*)$") or rest:match("^%s+(%S.*)$")
+            if tail then return tail end
+        end
+    end
+    local head, tail = title:match("^(.+)%s+%-%s+(%S.*)$")
+    if not head then return title end
+    -- Greedy head: the split is at the last " - ". The tail has to be a chapter ("Chapter 211", "Days 240", "# 5"), and
+    -- the head must not be one ("Chapter 12 - Part 2" is a chapter with a part, not a series).
+    if not tail:match("^[%a%.]+%s*#?%s*%d") and not tail:match("^#%s*%d") then return title end
+    if head:match("^[%a%.]+%s*#?%s*%d") then return title end
+    if type(series_title) == "string" and series_title ~= "" then
+        local h, s = key(head), key(series_title)
+        if h == "" or s == "" or (not h:find(s, 1, true) and not s:find(h, 1, true)) then return title end
+    end
+    return tail
+end
+
+function Labels.rawTitle(book, series_title)
+    local title = (book.metadata and book.metadata.title ~= "" and book.metadata.title) or book.name or "?"
+    return Labels.stripSeries(title, series_title or book.seriesTitle)
 end
 
 --- "Ch. 944" / "Vol. 3", or the name when there is no number.
@@ -51,7 +89,7 @@ end
 -- "The Storm"), or nil when the title is just a restatement of the number.
 function Labels.subtitle(book, series_title)
     if type(book) ~= "table" then return nil end
-    local title = Labels.rawTitle(book)
+    local title = Labels.rawTitle(book, series_title)
     local n = number_of(book)
     if not n then return nil end
     local rest = title:match("^%s*[Cc]h%a*%.?%s*[%d%.]+%s*[:%-–—]*%s*(.*)$")

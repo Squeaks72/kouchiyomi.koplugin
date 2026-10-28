@@ -48,7 +48,10 @@ end
 Sync.sanitize_filename = sanitize_filename
 
 local function book_title(book)
-    return (book.metadata and book.metadata.title) or book.name or book.id or "Untitled"
+    local title = (book.metadata and book.metadata.title) or book.name or book.id or "Untitled"
+    -- Without the series it leads with ("Blue Box - Chapter 211" is "Chapter 211" in the "Blue Box" folder): the name a
+    -- downloaded file gets, the one a dialog shows, and the one a file already on the device is matched by.
+    return Labels.stripSeries(tostring(title), book.seriesTitle)
 end
 Sync.book_title = book_title
 
@@ -116,7 +119,8 @@ function Sync:autoLinkFile(filepath)
         local books = self.plugin.api:get_all_series_books(series.id) or {}
         local by_title, by_number, number_hits = nil, nil, 0
         for _j, b in ipairs(books) do
-            if norm_name(book_title(b)) == norm_name(stem) or norm_name(b.name) == norm_name(stem) then
+            if norm_name(book_title(b)) == norm_name(stem) or norm_name(b.name) == norm_name(stem)
+                or norm_name(book_title(b)) == norm_name(Labels.stripSeries(stem, folder)) then
                 by_title = b
                 break
             end
@@ -766,15 +770,31 @@ end
 -- ---------------------------------------------------------------------------
 
 function Sync:getBookLocalPath(book, series_title)
-    local title = sanitize_filename(book_title(book))
-    if not title:lower():match("%.cbz$") then title = title .. ".cbz" end
+    local s_title = series_title or book.seriesTitle
+    local raw = tostring((book.metadata and book.metadata.title) or book.name or book.id or "Untitled")
+    local function cbz(name)
+        name = sanitize_filename(name)
+        if not name:lower():match("%.cbz$") then name = name .. ".cbz" end
+        return name
+    end
+    -- Named without the series it leads with: "Blue Box - Chapter 211" is Chapter 211.cbz in the Blue Box folder.
+    local title = cbz(Labels.stripSeries(raw, s_title))
     local download_dir = self.plugin:getDownloadDir()
     if not download_dir then return nil end
-    local s_title = series_title or book.seriesTitle
     if self.plugin.settings.download_to_subfolder and s_title and s_title ~= "" then
         download_dir = download_dir .. "/" .. sanitize_filename(s_title)
     end
-    return download_dir .. "/" .. title, title
+    local path = download_dir .. "/" .. title
+    -- A chapter downloaded while the title still led with the series keeps the name it was saved under, and counts as
+    -- downloaded; otherwise it would be fetched a second time.
+    local full = cbz(raw)
+    if full ~= title then
+        local lfs = require("libs/libkoreader-lfs")
+        if lfs.attributes(path, "mode") ~= "file" and lfs.attributes(download_dir .. "/" .. full, "mode") == "file" then
+            return download_dir .. "/" .. full, full
+        end
+    end
+    return path, title
 end
 
 function Sync:isBookDownloaded(book)
@@ -1880,6 +1900,8 @@ function Sync:getOfflineBookInfo(filepath)
     info.series_index = tonumber(custom_props.series_index) or tonumber(doc_props.series_index)
     info.title = (custom_props.title ~= "" and custom_props.title) or (doc_props.title ~= "" and doc_props.title)
         or filepath:match("([^/\\]+)$") or filepath
+    -- A chapter downloaded while the server named files "<Series> - Chapter N" carries that in its sidecar.
+    info.title = Labels.stripSeries(info.title, info.series)
     local prog = Sidecar.readLocalProgress(filepath) or {}
     info.page = prog.page
     info.page_count = prog.page_count

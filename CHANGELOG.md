@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.28.0 — 2026-10-28
+- **A chapter's title no longer leads with its series.** Uchiyomi can now name its files "Blue Box - Chapter 211" (its
+  SERIES_IN_NAMES setting), and the title it answers with is that file name. Under a "Blue Box" heading that is noise,
+  and it made every chapter list a subtitle ("Blue Box - Chapter 211" under "Ch. 211"). The series is now taken off the
+  front wherever a chapter's title is shown or used: the chapter lists and the end-of-chapter card, the name a downloaded
+  file gets (back to `Chapter 211.cbz` in the series folder), the title written into a downloaded chapter's sidecar,
+  and the Downloaded list. A chapter already on the device under the full name still counts as downloaded and is
+  still matched to its book. Titles that do not lead with their series ("Chapter 211", "Ch. 5 - The Storm",
+  "Chapter 12 - Part 2") are left exactly as they were.
+
 ## 0.27.1 — 2026-10-26
 - Uchiyomi being further along in the series is now asked about once: tapping "Stay here" no longer brings up a
   second "further along, jump to page N?" prompt for the open chapter.
