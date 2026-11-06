@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.29.0 — 2026-11-06
+- **A Keep reading widget for BookOrbit's home screen.** With BookOrbit installed, hold the board to edit it and add
+  "Keep reading" from the Library tab (sizes L and XL): your Uchiyomi Keep reading row as covers with the series beneath,
+  plus buttons for the Uchiyomi browser and settings. Tapping a cover opens that chapter, from the device if it is there,
+  otherwise as "When tapping a chapter" says. The row is saved on the device, so it draws at once and offline, and it
+  updates after the board is up. 18+ never appears on it. It is added from kouchiyomi, so BookOrbit updating does not
+  remove it.
+
 ## 0.28.2 — 2026-11-06
 - **Chapters with AVIF pages open.** KOReader cannot decode AVIF, so such a chapter failed with "No reader engine for
   this file or invalid file", and a stream showed blank pages. Those pages now come from the server re-encoded as

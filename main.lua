@@ -145,6 +145,7 @@ local DEFAULT_SETTINGS = {
     -- the document that was just deliberately opened, which is too big a move
     -- to make without a word.
     sync_series_catchup = "prompt",  -- prompt | silent | disable
+    keep_reading_rail = {},          -- the last Keep reading row, for BookOrbit's widget (uchi/bookorbit_widget)
     avif_sweep_done = false,         -- chapters with AVIF pages cleared off the device once (Sync:sweepAvifDownloads)
     push_interval = 5,
     reconcile_on_connect = false,   -- opening a chapter already syncs it; see Sync:reconcileDownloaded
@@ -206,6 +207,7 @@ function Plugin:init()
     pcall(SleepScreen.restoreIfStale, self)
     pcall(require("uchi/history").collapse, self)
     pcall(self.sync.sweepAvifDownloads, self.sync)
+    pcall(require("uchi/bookorbit_widget").install, self)
     logger.info("kouchiyomi: initialised")
 end
 
@@ -1041,6 +1043,7 @@ function Plugin:onPageUpdate(page)
 end
 
 function Plugin:onCloseDocument()
+    require("uchi/bookorbit_widget").markStale()
     pcall(Rotation.restore, self)
     pcall(SleepScreen.disarm, self)
     -- Before the next document's instance exists, so a delayed flush from this
@@ -1100,6 +1103,7 @@ function Plugin:onNetworkConnected()
             if next(self.settings.offline_progress_buffer or {}) then self.sync:flushOfflineProgress(false) end
         end,
         function() self.bookmarks:flushOffline() end,
+        function() require("uchi/bookorbit_widget").refresh() end,
         function()
             if self.is_active and self.current_book_id and self.ui and self.ui.document then
                 -- The series first: a chapter opened offline asks nothing until now, and

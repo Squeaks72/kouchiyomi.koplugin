@@ -13,6 +13,8 @@ Davis), reworked for Uchiyomi's native API.
   series) first, then new chapters in your favourites, then browsing:
   favourites, server bookmarks, recently updated, all series, per-library,
   search, and an offline view of everything downloaded.
+- **A Keep reading widget for BookOrbit's home screen**: add it from the board's widget list when BookOrbit is installed
+  (`uchi/bookorbit_widget.lua`); it is injected at start and changes none of BookOrbit's files.
 - **A BookOrbit-styled browser, when BookOrbit is installed**: the Uchiyomi browser and chapter lists are drawn with
   BookOrbit's own primitives instead of stock KOReader widgets -- grid cards everywhere a thumbnail-and-title-beside-it
   list row used to be, a search bar pinned to Home, Keep reading and your chosen lists as horizontally-paged shelves,
