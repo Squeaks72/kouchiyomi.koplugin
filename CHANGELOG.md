@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.31.0 — 2026-11-06
+- **Three more BookOrbit home screen widgets.** *New episodes*: your favorites with new chapters and how many ("+3 new").
+  *On this device*: series with unread chapters already downloaded ("2 ready"), which opens the next one and works with
+  no network at all. *Continue manga*: a small tile (sizes M, S, W) with the manga you are on, its chapter and page, and a
+  progress bar.
+- **The Keep reading widget says where you are**: "Ch. 235 · p. 8" under the series.
+- Tapping a chapter on these widgets opens it at that page, unless this device has already read further.
+- Opening the add-a-widget sheet no longer downloads covers for rows that are not on the board.
+
 ## 0.30.0 — 2026-11-06
 - **More Uchiyomi rows as BookOrbit home screen widgets**, next to Keep reading: Pick back up, Your favorites, Recently
   updated, Recently added, Most popular and Hidden gems. Tapping a Pick back up cover opens that chapter; tapping any

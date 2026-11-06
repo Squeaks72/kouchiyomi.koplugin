@@ -17,7 +17,16 @@ package.preload["ui/network/manager"] = function() return {
     runWhenOnline = function(_s, fn) fn() end,
 } end
 package.preload["logger"] = function() local n = function() end; return { warn = n, info = n, dbg = n } end
-package.preload["uchi/i18n"] = function() return { _ = function(s) return s end } end
+package.preload["uchi/i18n"] = function() return {
+    _ = function(s) return s end,
+    T = function(t, a, b) return (t:gsub("%%1", tostring(a)):gsub("%%2", tostring(b))) end,
+} end
+local local_pages = {}
+package.preload["uchi/sidecar"] = function() return {
+    readLocalProgress = function(path) return local_pages[path] and { page = local_pages[path] } or nil end,
+} end
+local SyncClass = {}
+package.preload["uchi/sync"] = function() return SyncClass end
 package.preload["uchi/adult"] = function() return {
     knownSeries = function(p, id) return (p.settings.adult_series_cache or {})[id] end,
 } end
@@ -75,15 +84,73 @@ check("Keep reading's stored type", Widget.ROWS[1].type == "kouchiyomi_keep_read
 check("the rows the server sends", seen_field.pickUp and seen_field.favorites and seen_field.updated and seen_field.new and seen_field.popular and seen_field.gems)
 
 -- The cards: dismissed, captions, covers, what a tap does.
-local cards = Widget.cards({ Widget.slim(chapter(1)), Widget.slim(chapter(2)) }, true, { b1 = true }, function(b) return "/c/" .. b.id end)
+local chapters_def, series_def = { chapters = true }, {}
+local cards = Widget.cards({ Widget.slim(chapter(1)), Widget.slim(chapter(2)) }, chapters_def, { b1 = true }, function(b) return "/c/" .. b.id end)
 check("a dismissed chapter stays off", #cards == 1 and cards[1].action.book.id == "b2", #cards)
 check("captioned with its series", cards[1].title == "Series 2", cards[1].title)
 check("with its cover", cards[1].cover_path == "/c/b2")
 check("a chapter opens the chapter", cards[1].action.kind == "kouchiyomi-open")
-cards = Widget.cards(srow, false)
+cards = Widget.cards(srow, series_def)
 check("a series is captioned with its title", cards[1].title == "Series 5", cards[1].title)
 check("a series opens the series", cards[1].action.kind == "kouchiyomi-series" and cards[1].action.series_id == "s5")
-check("no row is no cards", #Widget.cards(nil, true) == 0 and #Widget.cards({}, false) == 0)
+check("no row is no cards", #Widget.cards(nil, chapters_def) == 0 and #Widget.cards({}, series_def) == 0)
+
+-- Where a chapter is: Keep reading's caption.
+local at = Widget.slim(chapter(235))
+at.readProgress = { page = 8, completed = false }
+check("chapter and page", Widget.progressLine(at) == "Ch. 235 · p. 8", Widget.progressLine(at))
+at.readProgress = { page = 20, completed = true }
+check("a finished chapter has no page to name", Widget.progressLine(at) == "Ch. 235", Widget.progressLine(at))
+at.readProgress = nil
+check("nor one not started", Widget.progressLine(at) == "Ch. 235", Widget.progressLine(at))
+at.readProgress = { page = 8, completed = false }
+check("only rows that ask for it say so", Widget.cards({ at }, chapters_def)[1].sub == nil)
+check("Keep reading asks", Widget.cards({ at }, Widget.ROWS[1])[1].sub == "Ch. 235 · p. 8")
+check("the title stays the series", Widget.cards({ at }, Widget.ROWS[1])[1].title == "Series 235")
+
+-- Which page to open at.
+check("where it was left", Widget.resumePage(at) == 8)
+check("not behind this device", Widget.resumePage(at, 12) == nil)
+check("ahead of this device", Widget.resumePage(at, 3) == 8)
+check("level with it, nothing to do", Widget.resumePage(at, 8) == nil)
+check("a finished one opens as it would", Widget.resumePage({ readProgress = { page = 20, completed = true } }) == nil)
+check("page one is the start anyway", Widget.resumePage({ readProgress = { page = 1 } }) == nil)
+check("no progress, no page", Widget.resumePage({}) == nil)
+
+-- New episodes.
+local ups = Widget.updatesFrom({
+    { series = { id = "s1", metadata = { title = "One" } }, newCount = 3 },
+    { series = { id = "s18", metadata = { title = "Adult" } }, newCount = 1 },
+    { newCount = 2 },
+}, function(sid) return sid == "s18" end)
+check("a favorite with new chapters", #ups == 1 and ups[1].title == "One" and ups[1].newCount == 3, #ups)
+local up = Widget.cards(ups, Widget.ROWS[2])[1]
+check("says how many", up.sub == "+3 new", up.sub)
+check("and opens the series", up.action.kind == "kouchiyomi-series" and up.action.series_id == "s1")
+check("nothing new is an empty row", #Widget.updatesFrom(nil) == 0)
+
+-- On this device.
+local function file(n, sid, o)
+    o = o or {}
+    return { path = "/dl/" .. sid .. "/" .. n, book_id = sid .. "b" .. n, series_id = sid, series = "S " .. sid, series_index = n,
+             finished = o.finished or false, in_progress = o.in_progress or false }
+end
+local dev = Widget.deviceRow({ file(5, "a"), file(4, "a"), file(3, "a", { finished = true }), file(1, "b", { finished = true }) })
+check("a series with unread chapters", #dev == 1 and dev[1].seriesId == "a", #dev)
+check("counts what is unread", dev[1].count == 2, dev[1].count)
+check("opens the lowest unread", dev[1].path == "/dl/a/4", dev[1].path)
+dev = Widget.deviceRow({ file(4, "a"), file(5, "a", { in_progress = true }) })
+check("a chapter part-way through comes first", dev[1].path == "/dl/a/5", dev[1].path)
+dev = Widget.deviceRow({ file(4, "a"), file(9, "a") }, nil, { a = 9 })
+check("a chapter read on another device does not count", dev[1].count == 1 and dev[1].path == "/dl/a/9", dev[1].path)
+check("nor does a whole series of them", #Widget.deviceRow({ file(4, "a") }, nil, { a = 9 }) == 0)
+check("18+ is left out", #Widget.deviceRow({ file(1, "x") }, function(sid) return sid == "x" end) == 0)
+check("a file not of ours is left out", #Widget.deviceRow({ { path = "/x", finished = false } }) == 0)
+dev = Widget.deviceRow({ file(1, "old"), file(1, "new") }, nil, nil, { ["/dl/old/1"] = 100, ["/dl/new/1"] = 200 })
+check("most recently downloaded first", dev[1].seriesId == "new", dev[1].seriesId)
+local ready = Widget.cards(dev, Widget.ROWS[3])[1]
+check("says how many are ready", ready.sub == "1 ready", ready.sub)
+check("and opens the file itself", ready.action.kind == "kouchiyomi-file" and ready.action.path == "/dl/new/1")
 
 -- A plugin and a board, for the rest.
 local function plugin_with(home)
@@ -111,6 +178,7 @@ check("asks /api/home with no adult=1", p.asked[1] == "/api/home", p.asked[1])
 check("on short timeouts", p.fast_during == true)
 check("and leaves them as it found them", not p.api.fast)
 check("every row is saved", #p.settings.home_rows.onDeck == 2 and #p.settings.home_rows.gems == 1 and #p.settings.home_rows.popular == 0)
+check("New episodes is not asked for until it is placed", #p.asked == 1, #p.asked)
 check("the answer is dated", Widget.fetched_at > 0)
 -- Only rows on a board cost anything.
 check("no row drawn: no change to redraw", changed == false)
@@ -128,6 +196,43 @@ check("a reordered drawn row is a change", Widget.fetch(p) == true)
 Widget.drawn_rows = { gems = true }
 p.api.request = function() return { onDeck = { chapter(1) }, gems = { { id = "s50", metadata = { title = "Gem" } } } } end
 check("a change to a row not on the board is not", Widget.fetch(p) == false)
+-- What a card says is part of what a row shows.
+Widget.drawn_rows = { onDeck = true }
+Widget.fetch(p)
+local turned = chapter(1)
+turned.readProgress.page = 9
+p.api.request = function() return { onDeck = { turned } } end
+check("a new page on a card is a change", Widget.fetch(p) == true)
+
+-- New episodes: its own request, and a failure keeps what was saved.
+Widget.drawn_rows = { updates = true }
+covers["series_s60"] = "/c/s60"
+local updates_ok = true
+p.api.request = function(_a, path)
+    if path == "/api/updates" then return updates_ok and { content = { { series = { id = "s60", name = "Sixty" }, newCount = 2 } } } or nil end
+    return { onDeck = {} }
+end
+check("placed, it is asked for, and a new row is a change", Widget.fetch(p) == true)
+check("and saved", p.settings.home_rows.updates[1].newCount == 2)
+updates_ok = false
+check("a failed request keeps the saved row", Widget.fetch(p) == false and p.settings.home_rows.updates[1].id == "s60")
+updates_ok = true
+
+-- On this device: only when placed, no server, and Keep reading says what is behind the reader.
+p.sync = { getDownloadedBookInfos = function() return { file(1, "s60"), file(5, "s60") } end }
+Widget.drawn_rows = {}
+check("not placed, no look at the files", Widget.scan(p) == false and p.settings.home_rows.device == nil)
+Widget.drawn_rows = { device = true }
+p.settings.home_rows.onDeck = { { seriesId = "s60", metadata = { numberSort = 5 } } }
+local was_request = p.api.request
+p.api.request = function() error("the device row needs no server") end
+online = false
+check("placed, a new row is a change", Widget.scan(p) == true)
+online = true
+p.api.request = was_request
+check("what is behind the reader does not count", p.settings.home_rows.device[1].count == 1 and p.settings.home_rows.device[1].path == "/dl/s60/5")
+check("the same files again are not a change", Widget.scan(p) == false)
+check("a server answer leaves the device row alone", Widget.fetch(p) == false and p.settings.home_rows.device[1].path == "/dl/s60/5")
 
 -- A failed answer keeps the saved rows, and the Wi-Fi step's fast mode is left alone.
 local saved = p.settings.home_rows
@@ -154,12 +259,14 @@ package.loaded["bookorbit_catalog"] = Catalog
 check("installs", Widget.install(p) == true)
 local rows = #Widget.ROWS
 for _i, def in ipairs(Widget.ROWS) do check("registered: " .. def.field, type(W[def.type]) == "function") end
-check("offered in the list", #LIBRARY == rows and LIBRARY[1].type == Widget.TYPE and LIBRARY[1].sizes[1] == "L" and LIBRARY[1].tab == "library")
+check("registered: Continue manga", type(W[Widget.CONTINUE.type]) == "function")
+check("in small sizes", LIBRARY[#LIBRARY].type == Widget.CONTINUE.type and LIBRARY[#LIBRARY].sizes[1] == "M")
+check("offered in the list", #LIBRARY == rows + 1 and LIBRARY[1].type == Widget.TYPE and LIBRARY[1].sizes[1] == "L" and LIBRARY[1].tab == "library")
 check("named", LIBRARY[1].name() == "Keep reading")
 local run = Catalog.boardRun
 local p2 = plugin_with({})
 Widget.install(p2)
-check("a second instance does not add them twice", #LIBRARY == rows and Catalog.boardRun == run)
+check("a second instance does not add them twice", #LIBRARY == rows + 1 and Catalog.boardRun == run)
 check("and takes over as the live one", Widget.plugin == p2)
 Catalog.boardRun({}, { kind = "search" })
 check("BookOrbit's actions still reach BookOrbit", ran[1] == "search", ran[1])
@@ -183,6 +290,16 @@ check("the sliders icon opens the settings", sheets == 1 and #ran == 1)
 local_files["/dl/b1.cbz"] = true
 Catalog.boardRun(menu, { kind = "kouchiyomi-open", book = { id = "b1" } })
 check("a chapter on the device just opens", opened[1] == "/dl/b1.cbz" and #downloaded == 0)
+local_pages["/dl/b1.cbz"] = 3
+Catalog.boardRun(menu, { kind = "kouchiyomi-open", book = { id = "b1", readProgress = { page = 8 } } })
+check("at the page the card named", SyncClass.pending_goto_page == 8, SyncClass.pending_goto_page)
+local_pages["/dl/b1.cbz"] = 12
+Catalog.boardRun(menu, { kind = "kouchiyomi-open", book = { id = "b1", readProgress = { page = 8 } } })
+check("unless this device is further on", SyncClass.pending_goto_page == nil, SyncClass.pending_goto_page)
+opened = {}
+Catalog.boardRun(menu, { kind = "kouchiyomi-file", path = "/dl/x.cbz" })
+check("On this device opens the file", opened[1] == "/dl/x.cbz", opened[1])
+opened = { "/dl/b1.cbz" }
 Catalog.boardRun(menu, { kind = "kouchiyomi-open", book = { id = "b2" } })
 check("otherwise it downloads, then opens", downloaded[1] == "b2" and opened[2] == "/dl/b2.cbz")
 mode = "stream"
