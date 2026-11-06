@@ -432,8 +432,9 @@ end
     the reader deliberately opened (and turning back past page 1 already walks
     the series backwards).
 
-    Returns true when it took over -- jumped, or put a dialog on screen -- and
-    false plus a reason otherwise, so the caller can fall back to pullProgress.
+    Returns true when it took over -- jumped, put a dialog on screen, or the
+    reader already said to stay -- and false plus a reason otherwise, so the
+    caller can fall back to pullProgress.
 --]]
 function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
     local _ = self.plugin.i18n._
@@ -478,7 +479,8 @@ function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
         return decline("no series")
     end
 
-    local target, source = self.plugin.api:get_series_position(series_id)
+    -- Asked by hand, the whole series is searched so an earlier position can be named.
+    local target, source = self.plugin.api:get_series_position(series_id, not is_manual and current_book or nil)
     if type(target) ~= "table" or not target.id then
         if is_manual then self.plugin:notify(_("Uchiyomi has no other position in this series."), "info") end
         return decline(source or "no position")
@@ -493,16 +495,23 @@ function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
         if is_manual then self.plugin:notify(T(_("Uchiyomi is on an earlier chapter (%1)."), Labels.chapter(target)), "info") end
         return decline("behind")
     end
-    local declined_key = tostring(book_id) .. ">" .. tostring(target.id)
-    if not is_manual and Sync.catchup_declined[declined_key] then return decline("declined earlier") end
+    -- By series, not by open chapter: someone re-reading older chapters should
+    -- not be asked again on each one they move on to.
+    local declined_key = tostring(series_id) .. ">" .. tostring(target.id)
+    if not is_manual and Sync.catchup_declined[declined_key] then
+        -- Staying means staying: this chapter's own "further along" prompt, its
+        -- last page when the phone has moved on, is the same question asked worse.
+        self.plugin.last_catchup = "declined earlier"
+        return true
+    end
 
-    -- The page within that chapter. A chapter that is finished, or only ever
-    -- opened, opens at its own start instead.
+    -- The page within that chapter. Only ever opened opens at its start; finished
+    -- is the end of the series (get_series_position), so its last page is the place.
     local total = (target.media and tonumber(target.media.pagesCount)) or nil
     local rp = target.readProgress
     local page
-    if type(rp) == "table" and not rp.completed then
-        local p = tonumber(rp.page) or 0
+    if type(rp) == "table" then
+        local p = rp.completed and (total or tonumber(rp.page) or 0) or tonumber(rp.page) or 0
         if p > 1 and (not total or p <= total) then page = p end
     end
 
@@ -539,13 +548,16 @@ function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
         return true
     end
 
+    -- Opening a chapter and Wi-Fi coming up can both ask; one dialog answers both.
+    if Sync.catchup_dialog and UIManager:isWidgetShown(Sync.catchup_dialog) then return true end
+
     local ConfirmBox = require("ui/widget/confirmbox")
     local text = T(_("Uchiyomi is further along in this series:\n%1\n\nGo there?"), where)
     if not on_device then
         text = text .. "\n\n" .. (self.plugin:openModeFor(target) == "stream"
             and _("It will be streamed.") or _("It is not on this device yet and will be downloaded."))
     end
-    UIManager:show(ConfirmBox:new{
+    Sync.catchup_dialog = ConfirmBox:new{
         text = text,
         ok_text = _("Go there"),
         cancel_text = _("Stay here"),
@@ -559,12 +571,13 @@ function Sync:promptSeriesCatchUp(ui, is_manual, current_book)
             -- Staying means staying: no second "further along" prompt for a
             -- page of this chapter.
         end,
-    })
+    }
+    UIManager:show(Sync.catchup_dialog)
     return true
 end
 
---- The whole open-time progress question, in the right order and on one book
--- fetch: is the reader's place in this series somewhere else entirely, and if
+--- The whole progress question, for a chapter just opened or for Wi-Fi coming up
+-- under one, in the right order and on one book fetch: is the reader's place in this series somewhere else entirely, and if
 -- not, is it elsewhere in this chapter?
 function Sync:syncOnOpen(ui)
     if not self.plugin.settings.sync_progress then return end

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.28.1 — 2026-11-05
+- **Being several chapters behind Uchiyomi now offers the chapter you actually reached**, not the last page of the one
+  that is open. Three causes: Wi-Fi coming up under an open chapter (waking the device, or a chapter opened offline)
+  only ever asked about that chapter; the series position came from the newest history entry, which this device's own
+  writes could take over, so one jump to the end of a chapter hid the real position; and finishing the newest chapter
+  there is counted as having no position at all. The position is now the furthest chapter with progress in the series'
+  chapter list, which also works for a series read long ago or in an 18+ library.
+- "Stay here" now holds for that position across the series until KOReader restarts, instead of asking again from the
+  next chapter, or offering the end of this chapter the next time it opens.
+
 ## 0.28.0 — 2026-10-28
 - **A chapter's title no longer leads with its series.** Uchiyomi can now name its files "Blue Box - Chapter 211" (its
   SERIES_IN_NAMES setting), and the title it answers with is that file name. Under a "Blue Box" heading that is noise,

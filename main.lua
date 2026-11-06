@@ -1100,7 +1100,9 @@ function Plugin:onNetworkConnected()
         function() self.bookmarks:flushOffline() end,
         function()
             if self.is_active and self.current_book_id and self.ui and self.ui.document then
-                self.sync:pullProgress(self.ui, false)
+                -- The series first: a chapter opened offline asks nothing until now, and
+                -- on its own the page-level pull only offers the end of this chapter.
+                self.sync:syncOnOpen(self.ui)
                 self.bookmarks:syncOpenDocument(self.ui, false)
             end
         end,

@@ -388,8 +388,9 @@ function UchiyomiAPI:get_series(series_id)
 end
 
 --- Chapters of a series in reading order, paged. Each book carries readProgress.
-function UchiyomiAPI:get_series_books(series_id, page, size)
+function UchiyomiAPI:get_series_books(series_id, page, size, sort)
     local path = "/api/series/" .. escape(series_id) .. "/books?page=" .. tostring(page or 0) .. "&size=" .. tostring(size or 40)
+    if sort then path = path .. "&sort=" .. sort end
     return self:request(path)
 end
 
@@ -550,61 +551,55 @@ function UchiyomiAPI:get_read_progress(book_id)
 end
 
 --[[
-    Where the reader is in a whole series, not in one chapter: the chapter they
-    touched most recently, at the page they left it on -- or the chapter after
-    it when that one is finished. The returned book carries its own
-    readProgress, so the page comes with it.
+    Where the reader is in a whole series, not in one chapter: the furthest
+    chapter they have any progress on, at the page they left it on -- or the
+    chapter after it when that one is finished. The returned book carries its
+    own readProgress, so the page comes with it.
 
-    /api/history is the source of truth: it is ordered by when each chapter was
-    last read, so the first row for the series IS where the reader left off,
-    however many chapters ahead of this device that is.
+    Read from the series' own chapter list, newest chapter first, and not from
+    /api/history. History is ordered by the last write, and this device writes
+    too: a Kobo left on chapter 230 that is told to jump to its last page records
+    230 as the newest event, so "the newest row" then names the chapter it is
+    already in, however far the phone has got. It also holds only the last 200
+    chapters across every series, and hides 18+ unless asked. The list has none
+    of those problems.
 
-    /api/home's onDeck is only the fallback (a series that fell off the end of
-    the history window). Its "next unread" rule is the LOWEST-numbered chapter
-    not finished, so for anyone who skipped or read out of order it names an
-    early chapter, not the place they actually stopped.
+    Pass `current` (the open chapter) to stop at it: what is further back is not
+    somewhere to catch up to, and a reader far behind the newest chapter would
+    otherwise pull the whole list.
 
-    Returns the book plus where the answer came from, or nil plus a reason.
+    Having finished the last chapter there is, the position is that chapter:
+    nothing comes after it, but it can still be well ahead of this device.
+
+    Returns the book plus how it was chosen, or nil plus a reason.
 --]]
-function UchiyomiAPI:get_series_position(series_id)
+function UchiyomiAPI:get_series_position(series_id, current)
     if not series_id then return nil, "no series" end
-    local want = tostring(series_id)
-
-    local hist = self:get_history(200)
-    if type(hist) == "table" then
-        for _i, h in ipairs(hist.content or hist) do
-            if type(h) == "table" and tostring(h.series_id) == want and h.book_id then
-                local function after_finished()
-                    local nxt = self:get_next_book(h.book_id)
-                    if type(nxt) == "table" and nxt.id then return nxt, "history-next" end
-                    return nil, "series finished"
-                end
-                if h.completed then return after_finished() end
-                local b = self:get_book(h.book_id)
-                if type(b) == "table" and b.id then
-                    if type(b.readProgress) == "table" and b.readProgress.completed then
-                        return after_finished()
-                    end
-                    -- The history row holds the page even when the book DTO has
-                    -- no readProgress of its own (progress read silently).
-                    if type(b.readProgress) ~= "table" then
-                        b.readProgress = { page = tonumber(h.page) or 1, completed = false }
-                    end
-                    return b, "history"
-                end
+    local floor = chapter_number(current)
+    -- The chapter above the one being looked at. A tombstone is listed but has
+    -- no pages behind it (lib/chapterCleanup), so it is never somewhere to land.
+    local above
+    local page = 0
+    while true do
+        local res, err = self:get_series_books(series_id, page, SERIES_PAGE_SIZE, "metadata.numberSort,desc")
+        if type(res) ~= "table" then return nil, err or "no chapter list" end
+        local content = res.content or res
+        for _i, b in ipairs(content) do
+            local n = chapter_number(b)
+            if floor and n and n < floor then return nil, "nothing ahead" end
+            local rp = b.readProgress
+            if type(rp) == "table" and (rp.completed or (tonumber(rp.page) or 0) > 0) then
+                if not rp.completed and not b.pruned then return b, "furthest" end
+                if above then return above, "next after furthest" end
+                if b.pruned then return nil, "series finished" end
+                return b, "series finished"
             end
+            if not b.pruned then above = b end
         end
+        if res.last == nil or res.last == true or #content == 0 then break end
+        page = page + 1
     end
-
-    local home = self:get_home()
-    if type(home) == "table" and type(home.onDeck) == "table" then
-        for _i, b in ipairs(home.onDeck) do
-            if type(b) == "table" and b.id and tostring(b.seriesId) == want then
-                return b, "on-deck"
-            end
-        end
-    end
-    return nil, "not in recent reading"
+    return nil, "not read yet"
 end
 
 --- Is `book` a later chapter of its series than `other`? nil when the numbers
