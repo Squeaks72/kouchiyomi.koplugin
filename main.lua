@@ -145,7 +145,7 @@ local DEFAULT_SETTINGS = {
     -- the document that was just deliberately opened, which is too big a move
     -- to make without a word.
     sync_series_catchup = "prompt",  -- prompt | silent | disable
-    keep_reading_rail = {},          -- the last Keep reading row, for BookOrbit's widget (uchi/bookorbit_widget)
+    home_rows = {},                  -- the last rows of Uchiyomi's home, for BookOrbit's widgets (uchi/bookorbit_widget)
     avif_sweep_done = false,         -- chapters with AVIF pages cleared off the device once (Sync:sweepAvifDownloads)
     push_interval = 5,
     reconcile_on_connect = false,   -- opening a chapter already syncs it; see Sync:reconcileDownloaded

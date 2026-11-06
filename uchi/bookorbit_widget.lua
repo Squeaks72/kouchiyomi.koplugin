@@ -1,13 +1,13 @@
 --[[
-    A "Keep reading" widget for BookOrbit's home screen (bookorbit.koplugin).
+    Widgets for BookOrbit's home screen (bookorbit.koplugin), one per row of Uchiyomi's home: Keep reading and the rest.
 
-    It lives here, not in BookOrbit, so it survives BookOrbit's own updates: at start kouchiyomi adds it to BookOrbit's
+    They live here, not in BookOrbit, so they survive BookOrbit's own updates: at start kouchiyomi adds them to BookOrbit's
     public widget table and to the list a reader adds widgets from, without changing a file of BookOrbit's. BookOrbit
-    then treats it like any of its own: placing, moving, resizing, previews, tile style. On a device without BookOrbit
+    then treats them like any of its own: placing, moving, resizing, previews, tile style. On a device without BookOrbit
     the install does nothing. If kouchiyomi goes away a placed tile is left blank; the board itself is unharmed.
 
-    The row is Uchiyomi's Keep reading rail. A board has to draw at once and offline, so the widget only ever reads the
-    copy saved in the settings; asking the server happens after the board is up, and redraws it if the answer changed.
+    A board has to draw at once and offline, so a widget only ever reads the copy saved in the settings; asking the
+    server happens after the board is up, and redraws it if the answer changed. One /api/home answer holds every row.
 --]]
 
 local UIManager = require("ui/uimanager")
@@ -17,17 +17,44 @@ local _ = require("uchi/i18n")._
 local Widget = {}
 
 Widget.TYPE = "kouchiyomi_keep_reading"
--- How many series are kept, and how long a saved row counts as current.
+-- How many of a row are kept, and how long a saved answer counts as current.
 Widget.KEEP = 12
 Widget.TTL = 120
+
+-- Every row of /api/home. `field` is its key in the answer, `chapters` says it lists chapters rather than series. Named
+-- as Uchiyomi's own Home names them. A widget's type is stored in the board, so a row's must never change.
+Widget.ROWS = {
+    { field = "onDeck", chapters = true, type = Widget.TYPE, title = function() return _("Keep reading") end,
+      desc = function() return _("Your Keep reading row from Uchiyomi, via kouchiyomi") end,
+      empty = function() return _("Chapters you read in Uchiyomi show up here.") end },
+    { field = "pickUp", chapters = true, type = "kouchiyomi_pick_up", title = function() return _("Pick back up") end,
+      desc = function() return _("Manga you put down a while ago, from Uchiyomi") end,
+      empty = function() return _("Manga you put down a while ago show up here.") end },
+    { field = "favorites", type = "kouchiyomi_favorites", title = function() return _("Your favorites") end,
+      desc = function() return _("Your favorite series from Uchiyomi") end,
+      empty = function() return _("Series you favorite in Uchiyomi show up here.") end },
+    { field = "updated", type = "kouchiyomi_updated", title = function() return _("Recently updated") end,
+      desc = function() return _("Series with new chapters, from Uchiyomi") end,
+      empty = function() return _("Series with new chapters show up here.") end },
+    { field = "new", type = "kouchiyomi_new", title = function() return _("Recently added") end,
+      desc = function() return _("The newest series in Uchiyomi") end,
+      empty = function() return _("New series in Uchiyomi show up here.") end },
+    { field = "popular", type = "kouchiyomi_popular", title = function() return _("Most popular") end,
+      desc = function() return _("The most popular series in your Uchiyomi library") end,
+      empty = function() return _("The most popular series in your library show up here.") end },
+    { field = "gems", type = "kouchiyomi_gems", title = function() return _("Hidden gems") end,
+      desc = function() return _("Well-rated series you have not read, from Uchiyomi") end,
+      empty = function() return _("Hidden gems in your library show up here.") end },
+}
 
 Widget.fetched_at = 0      -- os.time() of the last answer; 0 = ask at the next chance
 Widget.plugin = nil        -- the live plugin instance: one is built per document
 Widget.installed = false   -- BookOrbit's tables outlive plugin instances, so they are extended once
--- The board that last drew the widget, to redraw it when newer data arrives. Weak: it must not keep a closed one alive.
+Widget.drawn_rows = {}     -- rows some board has drawn: only those get covers fetched or redraw it
+-- The board that last drew a widget, to redraw it when newer data arrives. Weak: it must not keep a closed one alive.
 local drawn_on = setmetatable({}, { __mode = "v" })
 
---- What is kept of a book from the rail: enough to draw its card and open it, offline included.
+--- What is kept of a chapter: enough to draw its card and open it, offline included.
 function Widget.slim(book)
     local m, media = book.metadata or {}, book.media or {}
     return {
@@ -39,28 +66,37 @@ function Widget.slim(book)
     }
 end
 
---- The saved row from an /api/home answer, newest first. `is_adult(series_id)` is a second check: the server already
--- leaves 18+ out of the rail for a request without adult=1.
-function Widget.railFrom(on_deck, is_adult)
-    local rail = {}
-    for _i, b in ipairs(on_deck or {}) do
-        if #rail >= Widget.KEEP then break end
-        if type(b) == "table" and b.id and not (is_adult and is_adult(b.seriesId)) then
-            table.insert(rail, Widget.slim(b))
-        end
-    end
-    return rail
+--- What is kept of a series: opening one reads it fresh from the server.
+function Widget.slimSeries(series)
+    local title = series.metadata and series.metadata.title
+    return { id = series.id, seriesId = series.id, title = (title ~= "" and title) or series.name }
 end
 
---- The cards to draw: a chapter dismissed from the browser's Keep reading stays off this row too.
-function Widget.cards(rail, dismissed, cover_of)
+--- A saved row from its part of an /api/home answer, in the server's order. `is_adult(series_id)` is a second check:
+-- the server already leaves 18+ out of a request without adult=1.
+function Widget.rowFrom(list, chapters, is_adult)
+    local row = {}
+    for _i, b in ipairs(type(list) == "table" and list or {}) do
+        if #row >= Widget.KEEP then break end
+        if type(b) == "table" and b.id then
+            local series_id = chapters and b.seriesId or b.id
+            if not (is_adult and is_adult(series_id)) then
+                table.insert(row, chapters and Widget.slim(b) or Widget.slimSeries(b))
+            end
+        end
+    end
+    return row
+end
+
+--- The cards to draw: a chapter dismissed from the browser's Keep reading stays off here too.
+function Widget.cards(saved, chapters, dismissed, cover_of)
     local out = {}
-    for _i, b in ipairs(type(rail) == "table" and rail or {}) do
+    for _i, b in ipairs(type(saved) == "table" and saved or {}) do
         if not (type(dismissed) == "table" and dismissed[b.id]) then
             table.insert(out, {
-                book = b,
-                title = b.seriesTitle or b.name or _("Manga"),
+                title = (chapters and (b.seriesTitle or b.name) or b.title) or _("Manga"),
                 cover_path = cover_of and cover_of(b) or nil,
+                action = chapters and { kind = "kouchiyomi-open", book = b } or { kind = "kouchiyomi-series", series_id = b.id },
             })
         end
     end
@@ -68,21 +104,21 @@ function Widget.cards(rail, dismissed, cover_of)
 end
 
 --- Identifies what a row shows, to tell whether a new answer needs a redraw.
-function Widget.signature(rail)
+function Widget.signature(row)
     local parts = {}
-    for _i, b in ipairs(rail or {}) do table.insert(parts, tostring(b.id)) end
+    for _i, b in ipairs(row or {}) do table.insert(parts, tostring(b.id)) end
     return table.concat(parts, ",")
 end
 
 --- A series' cover, else the chapter's; nil draws BookOrbit's placeholder with the title.
-local function cover_of(book)
+local function cover_of(entry)
     local Cache = require("uchi/cache")
-    return (book.seriesId and Cache.existingCoverPath("series", book.seriesId))
-        or (book.id and Cache.existingCoverPath("book", book.id))
+    return (entry.seriesId and Cache.existingCoverPath("series", entry.seriesId))
+        or (entry.id and entry.seriesId ~= entry.id and Cache.existingCoverPath("book", entry.id))
         or nil
 end
 
---- Ask the server for the row, on the API's short timeouts. Returns true when what the widget shows changed.
+--- Ask the server for the rows, on the API's short timeouts. Returns true when something a board has drawn changed.
 function Widget.fetch(plugin)
     local api = plugin.api
     if not api then return false end
@@ -92,16 +128,25 @@ function Widget.fetch(plugin)
     if not was_fast then api.fast_dead = false end
     local home = api:request("/api/home")
     local changed = false
-    if type(home) == "table" and type(home.onDeck) == "table" then
+    if type(home) == "table" then
         Widget.fetched_at = os.time()
         local Adult = require("uchi/adult")
-        local rail = Widget.railFrom(home.onDeck, function(series_id) return Adult.knownSeries(plugin, series_id) == true end)
-        for _i, b in ipairs(rail) do
-            if b.seriesId and not cover_of(b) and plugin.cache:cacheThumbnail("series", b.seriesId, nil, true) then changed = true end
+        local function is_adult(series_id) return Adult.knownSeries(plugin, series_id) == true end
+        local saved, rows = plugin.settings.home_rows or {}, {}
+        for _i, def in ipairs(Widget.ROWS) do
+            local row = Widget.rowFrom(home[def.field], def.chapters, is_adult)
+            rows[def.field] = row
+            if Widget.drawn_rows[def.field] then
+                if Widget.signature(row) ~= Widget.signature(saved[def.field]) then changed = true end
+                for _j, entry in ipairs(row) do
+                    if entry.seriesId and not cover_of(entry)
+                        and plugin.cache:cacheThumbnail("series", entry.seriesId, nil, true) then
+                        changed = true
+                    end
+                end
+            end
         end
-        local saved = plugin.settings.keep_reading_rail
-        if Widget.signature(rail) ~= Widget.signature(saved) then changed = true end
-        plugin.settings.keep_reading_rail = rail
+        plugin.settings.home_rows = rows
         plugin:saveSettings()
     end
     api.fast = was_fast
@@ -109,8 +154,29 @@ function Widget.fetch(plugin)
     return changed
 end
 
---- Bring the row up to date if it has gone stale and there is a network, and redraw the board on a change. Only for a
--- board that has drawn the widget: someone who has not placed it pays nothing for its existing.
+--- Remember the board a widget was just drawn on.
+function Widget.noteBoard(menu)
+    drawn_on[1] = menu
+end
+
+--- Redraw the board that showed a widget. Something may be over it just now (a toast, a dialog, the edit screen), and the
+-- answer must not be lost to that, so this waits for the board to be back on top; a board that has closed needs nothing.
+function Widget.redraw(tries)
+    local menu = drawn_on[1]
+    if not (menu and menu.boardIsTopmost) then return end
+    if not (UIManager:isWidgetShown(menu) or (menu.show_parent and UIManager:isWidgetShown(menu.show_parent))) then return end
+    if menu:boardIsTopmost() and not menu:boardEditing() then
+        Widget.redraw_waiting = false
+        menu:updateItems(nil, true)
+    elseif (tries or 0) > 0 then
+        UIManager:scheduleIn(2, function() Widget.redraw(tries - 1) end)
+    else
+        Widget.redraw_waiting = false
+    end
+end
+
+--- Bring the rows up to date if they have gone stale and there is a network, and redraw the board on a change. Only for
+-- a board that has drawn one of them: someone who has not placed one pays nothing for its existing.
 function Widget.refresh()
     local plugin = Widget.plugin
     if Widget.refreshing or not (plugin and plugin.api and drawn_on[1]) then return end
@@ -120,13 +186,12 @@ function Widget.refresh()
     local ok, changed = pcall(Widget.fetch, plugin)
     Widget.refreshing = false
     if not ok then
-        logger.warn("kouchiyomi: Keep reading widget:", tostring(changed))
+        logger.warn("kouchiyomi: BookOrbit widgets:", tostring(changed))
         return
     end
-    local menu = drawn_on[1]
-    if changed and menu and menu.boardIsTopmost and menu:boardIsTopmost() and not menu:boardEditing()
-        and (UIManager:isWidgetShown(menu) or (menu.show_parent and UIManager:isWidgetShown(menu.show_parent))) then
-        menu:updateItems(nil, true)
+    if changed and not Widget.redraw_waiting then
+        Widget.redraw_waiting = true
+        Widget.redraw(30)
     end
 end
 
@@ -166,12 +231,26 @@ local function open_chapter(plugin, menu, book)
     UIManager:show(dialog)
 end
 
---- Handles this widget's taps. True when the action was one of ours.
+--- Open a series in the Uchiyomi browser, read fresh from the server.
+local function open_series(plugin, series_id)
+    require("ui/network/manager"):runWhenOnline(function()
+        local series, err = plugin.api:get_series(series_id)
+        if type(series) ~= "table" then
+            plugin:notify(_("Could not load that series: ") .. tostring(err), "error")
+            return
+        end
+        plugin.menu:openBrowser(false, function(browser) browser:showBooksInSeries(series) end)
+    end)
+end
+
+--- Handles these widgets' taps. True when the action was one of ours.
 function Widget.run(menu, action)
     local plugin = Widget.plugin
     if not plugin then return false end
     if action.kind == "kouchiyomi-open" then
         open_chapter(plugin, menu, action.book)
+    elseif action.kind == "kouchiyomi-series" then
+        open_series(plugin, action.series_id)
     elseif action.kind == "kouchiyomi-browser" then
         plugin:onKouchiyomiBrowser()
     elseif action.kind == "kouchiyomi-settings" then
@@ -183,19 +262,25 @@ function Widget.run(menu, action)
 end
 
 --- The tile. Laid out as BookOrbit lays out a shelf: a label row, then as many covers as fit with the series beneath.
-local function draw(BoardUI, BoardMetrics, ctx, w, hh, _props, item)
+local function draw(def, BoardUI, BoardMetrics, ctx, w, hh, _props, item)
     local INK = BoardMetrics.INK
     local px, lh1 = BoardMetrics.px, BoardMetrics.lh1
     local text, vstack, hstack, flex, space, icon = BoardUI.text, BoardUI.vstack, BoardUI.hstack, BoardUI.flex, BoardUI.space, BoardUI.icon
     local plugin = Widget.plugin
     local pad = px(12)
     local iw = w - 2 * pad
-    drawn_on[1] = ctx.menu
+    Widget.noteBoard(ctx.menu)
+    -- A row just placed may have nothing fetched for it yet, its covers above all.
+    if not Widget.drawn_rows[def.field] then
+        Widget.drawn_rows[def.field] = true
+        Widget.markStale()
+    end
     -- After this draw, never during it: a board does not wait on the network.
     if os.time() - Widget.fetched_at >= Widget.TTL then UIManager:scheduleIn(1, Widget.refresh) end
 
-    local books = plugin and Widget.cards(plugin.settings.keep_reading_rail, plugin.settings.home_dismissed, cover_of) or {}
-    local title = _("Keep reading")
+    local saved = plugin and plugin.settings.home_rows
+    local books = plugin and saved and Widget.cards(saved[def.field], def.chapters, plugin.settings.home_dismissed, cover_of) or {}
+    local title = def.title()
     local right = hstack({ gap = px(14) }, {
         BoardUI.hit(icon("book-open", px(16), { sw = 2.25 }), { kind = "kouchiyomi-browser" }),
         BoardUI.hit(icon("sliders-horizontal", px(16), { sw = 2.25 }), { kind = "kouchiyomi-settings" }),
@@ -214,7 +299,7 @@ local function draw(BoardUI, BoardMetrics, ctx, w, hh, _props, item)
         return vstack({ w = w, h = hh, pad = pad }, {
             head,
             space(nil, px(8)),
-            text(_("Chapters you read in Uchiyomi show up here."), { s = 13, col = INK.g4, lines = 3, w = iw }),
+            text(def.empty(), { s = 13, col = INK.g4, lines = 3, w = iw }),
             flex(0),
         })
     end
@@ -244,7 +329,7 @@ local function draw(BoardUI, BoardMetrics, ctx, w, hh, _props, item)
             BoardUI.cover({ title = card.title }, cover_w, cover_h, { path = card.cover_path, border = thin, border_col = INK.gb }),
             space(nil, px(6)),
             text(card.title, { s = title_size, b = true, w = cover_w, data = true }),
-        }), { kind = "kouchiyomi-open", book = card.book }))
+        }), card.action))
     end
     return vstack({ w = w, h = hh, pad = pad, strict_padding = true }, {
         head,
@@ -254,7 +339,7 @@ local function draw(BoardUI, BoardMetrics, ctx, w, hh, _props, item)
     })
 end
 
---- Add the widget to BookOrbit. Returns false when BookOrbit is not there, or not a version with these tables.
+--- Add the widgets to BookOrbit. Returns false when BookOrbit is not there, or not a version with these tables.
 function Widget.install(plugin)
     Widget.plugin = plugin
     if Widget.installed then return true end
@@ -269,15 +354,15 @@ function Widget.install(plugin)
         and BoardUI and BoardMetrics and Catalog and Catalog.boardRun) then
         return false
     end
-    BoardWidgets.W[Widget.TYPE] = function(ctx, w, hh, props, item)
-        return draw(BoardUI, BoardMetrics, ctx, w, hh, props, item)
+    for _i, def in ipairs(Widget.ROWS) do
+        BoardWidgets.W[def.type] = function(ctx, w, hh, props, item)
+            return draw(def, BoardUI, BoardMetrics, ctx, w, hh, props, item)
+        end
+        table.insert(BoardEdit.LIBRARY, {
+            type = def.type, name = def.title, desc = def.desc,
+            sizes = { "L", "XL" }, tab = "library", new = true,
+        })
     end
-    table.insert(BoardEdit.LIBRARY, {
-        type = Widget.TYPE,
-        name = function() return _("Keep reading") end,
-        desc = function() return _("Your Keep reading row from Uchiyomi, via kouchiyomi") end,
-        sizes = { "L", "XL" }, tab = "library", new = true,
-    })
     local board_run = Catalog.boardRun
     Catalog.boardRun = function(menu, action, tile)
         if Widget.run(menu, action) then return end

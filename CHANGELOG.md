@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.0 — 2026-11-06
+- **More Uchiyomi rows as BookOrbit home screen widgets**, next to Keep reading: Pick back up, Your favorites, Recently
+  updated, Recently added, Most popular and Hidden gems. Tapping a Pick back up cover opens that chapter; tapping any
+  other opens its series in the Uchiyomi browser. Only rows placed on a board fetch covers.
+- A widget's new data is no longer lost when a toast or dialog is over the board at that moment: the board redraws once it
+  is back on top. Until now its tile stayed as it was until something else redrew it.
+
 ## 0.29.0 — 2026-11-06
 - **A Keep reading widget for BookOrbit's home screen.** With BookOrbit installed, hold the board to edit it and add
   "Keep reading" from the Library tab (sizes L and XL): your Uchiyomi Keep reading row as covers with the series beneath,
