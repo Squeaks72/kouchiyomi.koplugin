@@ -726,9 +726,20 @@ function UchiyomiAPI:download_book_thumbnail(book_id)
     return self:request_raw("/api/v1/books/" .. escape(book_id) .. "/thumbnail", { accept = "image/*" })
 end
 
---- One page image (1-based). Returns bytes.
+--- KOReader cannot decode AVIF, in a CBZ ("No reader engine for this file") or streamed. An AVIF file names its
+-- type at byte 5: ftypavif for a still, ftypavis for a sequence.
+local function is_avif(bytes)
+    if type(bytes) ~= "string" then return false end
+    local brand = bytes:sub(5, 12)
+    return brand == "ftypavif" or brand == "ftypavis"
+end
+
+--- One page image (1-based). Returns bytes, always in a format KOReader can show: an AVIF page is asked for again
+-- from the route that re-encodes it (`w` is the server's largest, and it never enlarges), which answers WebP or JPEG.
 function UchiyomiAPI:download_page(book_id, n)
-    return self:request_raw("/api/v1/books/" .. escape(book_id) .. "/pages/" .. tostring(n), { accept = "image/*", timeout = 30 })
+    local bytes, err, code = self:request_raw("/api/v1/books/" .. escape(book_id) .. "/pages/" .. tostring(n), { accept = "image/*", timeout = 30 })
+    if not is_avif(bytes) then return bytes, err, code end
+    return self:request_raw("/img/lib/books/" .. escape(book_id) .. "/page/" .. tostring(n) .. "?w=2000", { accept = "image/*", timeout = 30 })
 end
 
 --- Page n and the one after it as a single wide image: a spread the source cut in two. The server has no route for
@@ -792,8 +803,15 @@ function UchiyomiAPI:download_book(book_id, dest_path, progress_cb)
         local Spreads = require("uchi/spreads")
         local set, count = Spreads.joins(listed)
         if count > 0 then joins = set end
+    else
+        listed = self:get_book_pages(book_id)
     end
-    if self:hasOpds() and not joins then
+    -- The file the server holds is no use with AVIF pages in it: those are assembled too, and download_page re-encodes them.
+    local has_avif = false
+    for _i, p in ipairs(type(listed) == "table" and listed or {}) do
+        if type(p.fileName) == "string" and p.fileName:lower():match("%.avif$") then has_avif = true; break end
+    end
+    if self:hasOpds() and not joins and not has_avif then
         local ok, err, code = self:download_book_opds(book_id, dest_path)
         if ok then return true end
         logger.warn("kouchiyomi: OPDS download failed, falling back to page assembly:", tostring(err))
@@ -823,6 +841,7 @@ function UchiyomiAPI:download_book(book_id, dest_path, progress_cb)
         if not bytes then
             bytes, perr = self:download_page(book_id, n)
             ext = (p.fileName and p.fileName:match("%.(%w+)$")) or "jpg"
+            if ext:lower() == "avif" and bytes then ext = bytes:sub(1, 4) == "RIFF" and "webp" or "jpg" end
         end
         if not bytes then
             zw:abort()

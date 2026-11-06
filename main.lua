@@ -145,6 +145,7 @@ local DEFAULT_SETTINGS = {
     -- the document that was just deliberately opened, which is too big a move
     -- to make without a word.
     sync_series_catchup = "prompt",  -- prompt | silent | disable
+    avif_sweep_done = false,         -- chapters with AVIF pages cleared off the device once (Sync:sweepAvifDownloads)
     push_interval = 5,
     reconcile_on_connect = false,   -- opening a chapter already syncs it; see Sync:reconcileDownloaded
     reconcile_last = 0,
@@ -204,6 +205,7 @@ function Plugin:init()
     -- A sleep screen still held by a session that was killed mid-chapter.
     pcall(SleepScreen.restoreIfStale, self)
     pcall(require("uchi/history").collapse, self)
+    pcall(self.sync.sweepAvifDownloads, self.sync)
     logger.info("kouchiyomi: initialised")
 end
 

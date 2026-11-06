@@ -1193,6 +1193,31 @@ end
 --- `purge_history` also takes the chapter out of KOReader's own history, which
 -- is its own list of titles and outlives the file. Only wanted where the point
 -- is that no trace is left (18+); an ordinary cleanup leaves history alone.
+--- Does this CBZ have AVIF pages? The names are all in the zip's central directory, at the end of the file.
+function Sync.holdsAvifPages(path)
+    local f = io.open(path, "rb")
+    if not f then return false end
+    local size = f:seek("end")
+    f:seek("set", math.max(0, size - 65536))
+    local tail = f:read("*a") or ""
+    f:close()
+    return tail:lower():find(".avif", 1, true) ~= nil
+end
+
+--- Once ever: remove the chapters earlier versions downloaded with AVIF pages. KOReader cannot open them, and a chapter
+-- already on the device is opened rather than fetched, so each would go on failing. Tapping one now downloads it readable.
+function Sync:sweepAvifDownloads()
+    if self.plugin.settings.avif_sweep_done then return end
+    self.plugin.settings.avif_sweep_done = true
+    for _i, info in ipairs(self:getDownloadedBookInfos()) do
+        if Sync.holdsAvifPages(info.path) then
+            logger.info("kouchiyomi: removing a chapter KOReader cannot open:", info.path)
+            self:deleteDownloadedFile(info.path, false)
+        end
+    end
+    self.plugin:saveSettings()
+end
+
 function Sync:deleteDownloadedFile(path, purge_history)
     os.remove(path)
     self:purgeSidecar(path)

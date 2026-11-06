@@ -9,6 +9,7 @@ against stubs:
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/prev_chapter.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/series_position.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/series_catchup.lua
+cd /path/to/kouchiyomi.koplugin && lua5.1 tests/avif.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/cleanup.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/rotation.lua
 cd /path/to/kouchiyomi.koplugin && lua5.1 tests/dualpage.lua

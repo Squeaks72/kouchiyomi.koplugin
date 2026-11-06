@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.28.2 — 2026-11-06
+- **Chapters with AVIF pages open.** KOReader cannot decode AVIF, so such a chapter failed with "No reader engine for
+  this file or invalid file", and a stream showed blank pages. Those pages now come from the server re-encoded as
+  WebP or JPEG, downloaded or streamed. A chapter an earlier version already downloaded like that is removed once, at
+  the next start, and downloads readable the next time it is tapped.
+
 ## 0.28.1 — 2026-11-05
 - **Being several chapters behind Uchiyomi now offers the chapter you actually reached**, not the last page of the one
   that is open. Three causes: Wi-Fi coming up under an open chapter (waking the device, or a chapter opened offline)
