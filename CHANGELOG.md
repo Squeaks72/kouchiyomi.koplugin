@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.32.0 — 2026-11-06
+- **Hide libraries on this device.** Tools > Uchiyomi > Hidden libraries: tick a library and it is left out of search, All
+  series, Recently updated, the Libraries list, Keep reading and the rest of the home screen, favourites, your lists,
+  bookmarks and the BookOrbit widgets. Nothing changes on the server or in your other Uchiyomi apps. Chapters already
+  downloaded stay under Downloaded chapters, and a chapter you have open keeps working and syncing.
+
 ## 0.31.0 — 2026-11-06
 - **Three more BookOrbit home screen widgets.** *New episodes*: your favorites with new chapters and how many ("+3 new").
   *On this device*: series with unread chapters already downloaded ("2 ready"), which opens the next one and works with

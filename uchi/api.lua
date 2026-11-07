@@ -383,6 +383,32 @@ function UchiyomiAPI:series_titles_in(library_ids)
     return titles
 end
 
+--- Every series id in the given libraries, 18+ included, as a set. nil, err unless all of it could be read: an answer
+-- cut short would quietly bring series back.
+function UchiyomiAPI:series_ids_in(library_ids)
+    local ids = {}
+    for _i, lib_id in ipairs(library_ids or {}) do
+        local page = 0
+        while true do
+            local body = {
+                page = page, size = 100, sort = "title,asc",
+                condition = { libraryId = { operator = "is", value = lib_id } },
+            }
+            local res, err = self:request("/api/series/search?adult=1", "POST", body)
+            if type(res) ~= "table" then return nil, err end
+            local content = res.content or res
+            if type(content) ~= "table" then return nil, "bad answer" end
+            for _j, series in ipairs(content) do
+                if series.id then ids[tostring(series.id)] = true end
+            end
+            if #content == 0 or res.last == nil or res.last == true then break end
+            page = page + 1
+            if page > 200 then return nil, "too many pages" end
+        end
+    end
+    return ids
+end
+
 function UchiyomiAPI:get_series(series_id)
     return self:request("/api/series/" .. escape(series_id))
 end

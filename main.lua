@@ -60,6 +60,10 @@ local DEFAULT_SETTINGS = {
     -- Limit the browser's catalogue views to one list ("favorites" or a list id; nil = every series). uchi/scope.
     browse_scope = nil,
     browse_scope_name = nil,
+    -- Libraries left out of everything this device lists: library id -> name. uchi/hidden.
+    hidden_libraries = {},
+    hidden_series = {},              -- series id -> true, the series of those libraries
+    hidden_series_at = 0,
     adult_libraries = {},            -- library id -> true, from /api/libraries
     adult_libraries_at = 0,
     adult_series_cache = {},         -- series id -> true/false, so it is known offline

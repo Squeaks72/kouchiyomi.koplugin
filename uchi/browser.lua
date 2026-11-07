@@ -11,6 +11,7 @@ local UIManager = require("ui/uimanager")
 local logger = require("logger")
 local Labels = require("uchi/labels")
 local Scope = require("uchi/scope")
+local Hidden = require("uchi/hidden")
 local SeriesActions = require("uchi/series_actions")
 
 -- When BookOrbit (bookorbit.koplugin) is installed, the browser is drawn
@@ -430,9 +431,10 @@ function UchiBrowser:_homeData(force)
     local cache = p._home_cache
     if not force and cache and os.time() - cache.ts < 600 then return cache end
     local data = { ts = os.time(), on_deck = {}, lists = {} }
+    Hidden.refresh(p)
     local home = p.api:get_home()
     if type(home) == "table" and type(home.onDeck) == "table" then
-        data.on_deck = home.onDeck
+        data.on_deck = Hidden.withoutChapters(p, home.onDeck)
     else
         local hist = self:_keepReadingFromHistory()
         if type(hist) == "table" then data.on_deck = hist.content or {} end
@@ -446,7 +448,7 @@ function UchiBrowser:_homeData(force)
                 p.settings.home_list_names = p.settings.home_list_names or {}
                 p.settings.home_list_names[id] = col.name
             end
-            for _j, s in ipairs(col.items or col.content or {}) do
+            for _j, s in ipairs(Hidden.withoutSeries(p, col.items or col.content or {})) do
                 if #entry.books >= limit then break end
                 local book = p.sync:getNextUnreadBook(s)
                 if book then
@@ -629,7 +631,7 @@ function UchiBrowser:_scoped(plain, opts)
     return function(page, size)
         local items, err = self:_scopeItems(opts.reveal)
         if not items then return nil, err end
-        return Scope.page(Scope.sort(Scope.filter(items, opts), opts.sort), page, size)
+        return Scope.page(Scope.sort(Scope.filter(Hidden.withoutSeries(self.plugin, items), opts), opts.sort), page, size)
     end
 end
 
@@ -644,7 +646,7 @@ function UchiBrowser:showAllSeries(sort, title)
     if not self.plugin.api then return end
     self:_loadCatalog{
         title = self:_scopedTitle(title),
-        fetch_func = self:_scoped(function(page, size) return self.plugin.api:search_series(nil, page, size, nil, sort) end,
+        fetch_func = self:_scoped(function(page, size) return self.plugin.api:search_series(nil, page, size, Hidden.condition(self.plugin), sort) end,
             { sort = sort }),
         item_builder = function(s) return series_item(self, s) end,
         cover_type = "series",
@@ -657,7 +659,7 @@ function UchiBrowser:showLibraries()
     local _ = self.plugin.i18n._
     self:_loadCatalog{
         title = _("Libraries"),
-        fetch_func = function() return self.plugin.api:get_libraries() end,
+        fetch_func = function() return Hidden.withoutLibraries(self.plugin, self.plugin.api:get_libraries()) end,
         item_builder = function(lib)
             local name = lib.name or lib.id
             if lib.adult then name = name .. "  (18+)" end
@@ -688,7 +690,7 @@ function UchiBrowser:showFavorites()
     local _ = self.plugin.i18n._
     self:_loadCatalog{
         title = _("Favourites"),
-        fetch_func = function() return self.plugin.api:get_favorites() end,
+        fetch_func = function() return Hidden.withoutSeries(self.plugin, self.plugin.api:get_favorites()) end,
         item_builder = function(s) return series_item(self, s) end,
         cover_type = "series",
         empty_text = _("No favourites yet. Hold a series to favourite it."),
@@ -707,6 +709,7 @@ function UchiBrowser:showUpdates()
         fetch_func = function()
             local favs, err = self.plugin.api:get_favorites()
             if type(favs) ~= "table" then return favs, err end
+            favs = Hidden.withoutSeries(self.plugin, favs)
             local list = favs.content or favs
             local msg = InfoMessage:new{ text = T(_("Checking %1 favourite(s)..."), #list) }
             UIManager:show(msg)
@@ -749,7 +752,7 @@ function UchiBrowser:_keepReadingFromHistory()
     local out = {}
     local seen_series = {}
     for _i, h in ipairs(hist.content or {}) do
-        if h.series_id and not seen_series[h.series_id] then
+        if h.series_id and not seen_series[h.series_id] and not Hidden.isSeries(self.plugin, h.series_id) then
             seen_series[h.series_id] = true
             local book
             if h.completed then
@@ -773,7 +776,10 @@ function UchiBrowser:showBookmarks()
     local T = self.plugin.i18n.T
     self:_loadCatalog{
         title = _("Bookmarks"),
-        fetch_func = function() return self.plugin.api:get_bookmarks() end,
+        fetch_func = function()
+            Hidden.refresh(self.plugin)
+            return Hidden.withoutChapters(self.plugin, self.plugin.api:get_bookmarks())
+        end,
         item_builder = function(bm)
             local label = T(_("%1 - %2, page %3"), bm.series_title or "?", bm.book_title or "?", bm.page or "?")
             return {
@@ -808,7 +814,7 @@ function UchiBrowser:promptSearch()
                 self._last_search = q
                 self:_loadCatalog{
                     title = self:_scopedTitle(_("Search: ") .. q),
-                    fetch_func = self:_scoped(function(page, size) return self.plugin.api:search_series(q, page, size) end,
+                    fetch_func = self:_scoped(function(page, size) return self.plugin.api:search_series(q, page, size, Hidden.condition(self.plugin)) end,
                         { query = q }),
                     item_builder = function(s) return series_item(self, s) end,
                     cover_type = "series",

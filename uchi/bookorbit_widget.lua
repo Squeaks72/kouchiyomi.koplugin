@@ -90,12 +90,12 @@ function Widget.slimSeries(series)
 end
 
 --- New episodes from an /api/updates answer, in the server's order: newest chapter first.
-function Widget.updatesFrom(content, is_adult)
+function Widget.updatesFrom(content, leave_out)
     local row = {}
     for _i, u in ipairs(type(content) == "table" and content or {}) do
         if #row >= Widget.KEEP then break end
         local series = type(u) == "table" and u.series
-        if type(series) == "table" and series.id and not (is_adult and is_adult(series.id)) then
+        if type(series) == "table" and series.id and not (leave_out and leave_out(series.id, series)) then
             local entry = Widget.slimSeries(series)
             entry.newCount = tonumber(u.newCount)
             table.insert(row, entry)
@@ -107,12 +107,12 @@ end
 --- On this device, from the local info of each downloaded chapter (Sync:getDownloadedBookInfos): per series, how many are
 -- unread and which to open, the one part-way through, else the lowest. `reached[series_id]` is the chapter Keep reading
 -- has got to, so chapters read on another device do not count. Most recently downloaded series first.
-function Widget.deviceRow(infos, is_adult, reached, downloaded)
+function Widget.deviceRow(infos, leave_out, reached, downloaded)
     local groups, order = {}, {}
     for _i, info in ipairs(infos or {}) do
         local series_id = info.series_id
         local passed = series_id and reached and reached[series_id] and info.series_index and info.series_index < reached[series_id]
-        if series_id and not info.finished and not passed and not (is_adult and is_adult(series_id)) then
+        if series_id and not info.finished and not passed and not (leave_out and leave_out(series_id)) then
             local g = groups[series_id]
             if not g then
                 g = { series_id = series_id, title = info.series, count = 0, newest = 0 }
@@ -158,20 +158,28 @@ function Widget.resumePage(book, local_page)
     return page
 end
 
---- A saved row from its part of an /api/home answer, in the server's order. `is_adult(series_id)` is a second check:
--- the server already leaves 18+ out of a request without adult=1.
-function Widget.rowFrom(list, chapters, is_adult)
+--- A saved row from its part of an /api/home answer, in the server's order. `leave_out(series_id, entry)` drops hidden
+-- libraries, and is a second check on 18+: the server already leaves that out of a request without adult=1.
+function Widget.rowFrom(list, chapters, leave_out)
     local row = {}
     for _i, b in ipairs(type(list) == "table" and list or {}) do
         if #row >= Widget.KEEP then break end
         if type(b) == "table" and b.id then
             local series_id = chapters and b.seriesId or b.id
-            if not (is_adult and is_adult(series_id)) then
+            if not (leave_out and leave_out(series_id, b)) then
                 table.insert(row, chapters and Widget.slim(b) or Widget.slimSeries(b))
             end
         end
     end
     return row
+end
+
+--- 18+ or in a hidden library: not for a row.
+local function left_out_of(plugin)
+    local Adult, Hidden = require("uchi/adult"), require("uchi/hidden")
+    return function(series_id, dto)
+        return Adult.knownSeries(plugin, series_id) == true or Hidden.isSeries(plugin, series_id, dto)
+    end
 end
 
 --- The cards to draw: a chapter dismissed from the browser's Keep reading stays off here too.
@@ -239,23 +247,23 @@ function Widget.fetch(plugin)
     local was_fast = api.fast
     api.fast = true
     if not was_fast then api.fast_dead = false end
+    require("uchi/hidden").refresh(plugin)
     local home = api:request("/api/home")
     local changed = false
     if type(home) == "table" then
         Widget.fetched_at = os.time()
-        local Adult = require("uchi/adult")
-        local function is_adult(series_id) return Adult.knownSeries(plugin, series_id) == true end
+        local leave_out = left_out_of(plugin)
         local saved, rows = plugin.settings.home_rows or {}, {}
         for _i, def in ipairs(Widget.ROWS) do
             local row
             if def.source == "updates" then
                 -- A request of its own, so only when placed. A failure keeps what was saved.
                 local updates = Widget.drawn_rows[def.field] and api:request("/api/updates")
-                row = type(updates) == "table" and Widget.updatesFrom(updates.content, is_adult) or saved[def.field]
+                row = type(updates) == "table" and Widget.updatesFrom(updates.content, leave_out) or saved[def.field]
             elseif def.source == "device" then
                 row = saved[def.field]
             else
-                row = Widget.rowFrom(home[def.field], def.chapters, is_adult)
+                row = Widget.rowFrom(home[def.field], def.chapters, leave_out)
             end
             rows[def.field] = row
             if Widget.drawn_rows[def.field] and def.source ~= "device" then
@@ -275,14 +283,12 @@ end
 function Widget.scan(plugin)
     if not Widget.drawn_rows.device then return false end
     Widget.scanned_at = os.time()
-    local Adult = require("uchi/adult")
     local saved = plugin.settings.home_rows or {}
     local reached = {}
     for _i, b in ipairs(saved.onDeck or {}) do
         if b.seriesId and b.metadata then reached[b.seriesId] = tonumber(b.metadata.numberSort) end
     end
-    local row = Widget.deviceRow(plugin.sync:getDownloadedBookInfos(),
-        function(series_id) return Adult.knownSeries(plugin, series_id) == true end, reached, plugin.settings.downloaded_books)
+    local row = Widget.deviceRow(plugin.sync:getDownloadedBookInfos(), left_out_of(plugin), reached, plugin.settings.downloaded_books)
     local changed = Widget.signature(row) ~= Widget.signature(saved.device)
     saved.device = row
     plugin.settings.home_rows = saved
@@ -299,8 +305,11 @@ end
 -- answer must not be lost to that, so this waits for the board to be back on top; a board that has closed needs nothing.
 function Widget.redraw(tries)
     local menu = drawn_on[1]
-    if not (menu and menu.boardIsTopmost) then return end
-    if not (UIManager:isWidgetShown(menu) or (menu.show_parent and UIManager:isWidgetShown(menu.show_parent))) then return end
+    if not (menu and menu.boardIsTopmost)
+        or not (UIManager:isWidgetShown(menu) or (menu.show_parent and UIManager:isWidgetShown(menu.show_parent))) then
+        Widget.redraw_waiting = false
+        return
+    end
     if menu:boardIsTopmost() and not menu:boardEditing() then
         Widget.redraw_waiting = false
         menu:updateItems(nil, true)
@@ -340,6 +349,15 @@ end
 --- Reading moved the row on: ask again at the next chance.
 function Widget.markStale()
     Widget.fetched_at, Widget.scanned_at = 0, 0
+end
+
+--- What is hidden changed: ask again at the next chance, and redraw the board from the rows as they now stand.
+function Widget.hiddenChanged()
+    Widget.markStale()
+    if drawn_on[1] and not Widget.redraw_waiting then
+        Widget.redraw_waiting = true
+        Widget.redraw(30)
+    end
 end
 
 --- Open a chapter from the row the way the browser would: the copy on the device, else download or stream as set.

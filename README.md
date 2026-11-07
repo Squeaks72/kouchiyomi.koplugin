@@ -100,6 +100,9 @@ Davis), reworked for Uchiyomi's native API.
   right; a page turn moves past both, and a real (wide) spread keeps the screen
   to itself. A screen the plugin turned for a spread stays single; this is for
   a screen you turned yourself. Settings ▸ Reading turns it off.
+- **Hide libraries on this device**: Tools ▸ Uchiyomi ▸ Hidden libraries leaves a library out of search, the catalogue
+  views, the home screen, favourites, lists, bookmarks and the BookOrbit widgets. The server and your other apps are
+  untouched, and downloaded chapters stay under Downloaded chapters.
 - **18+ is listed only when asked, and read like anything else**: 18+ series are not listed on the home screen, in
   updates, favourites, history, bookmarks or a plain search, because the plugin stops asking the server to include
   them (Settings ▸ Server: "Show 18+ in search and lists" turns that around; "Let me open 18+ libraries" covers a

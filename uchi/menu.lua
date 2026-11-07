@@ -6,6 +6,7 @@ local UIManager = require("ui/uimanager")
 local InputDialog = require("ui/widget/inputdialog")
 local MultiInputDialog = require("ui/widget/multiinputdialog")
 local logger = require("logger")
+local Hidden = require("uchi/hidden")
 
 local Menu = {}
 
@@ -109,6 +110,17 @@ function Menu:createMainMenu()
         help_text = _("Trims what the browser loads: All series, Recently updated, a library's series and search show only the series in the list you pick -- Favourites or any of your Uchiyomi lists -- instead of everything the server holds. Favourites, bookmarks, new chapters and the home screen are unchanged. A line at the top of the browser turns the limit off for the session."),
         keep_menu_open = true,
         sub_item_table_func = function() return self:browseScopeMenu() end,
+    })
+    table.insert(items, {
+        text_func = function()
+            local names = {}
+            for _id, name in pairs(Hidden.libraries(p)) do table.insert(names, name) end
+            table.sort(names)
+            return T(_("Hidden libraries: %1"), #names > 0 and table.concat(names, ", ") or _("none"))
+        end,
+        help_text = _("Leaves a library out of everything this device lists: search, All series, Recently updated, the Libraries list, the home screen, favourites, your lists, bookmarks and the BookOrbit widgets. Only this device changes, nothing on the server does. Chapters you already downloaded stay under Downloaded chapters, and a chapter you have open keeps working and syncing."),
+        keep_menu_open = true,
+        sub_item_table_func = function() return self:hiddenLibrariesMenu() end,
     })
     table.insert(items, { text = _("Layout"), keep_menu_open = true, sub_item_table_func = function() return self:layoutMenu() end })
     table.insert(items, { text = _("Plugin update"), keep_menu_open = true, sub_item_table_func = function() return self:updateMenu() end })
@@ -721,6 +733,47 @@ function Menu:browseScopeMenu()
             checked_func = function() return p.settings.browse_scope == id end,
             keep_menu_open = true,
             callback = function(tm) choose(id); if tm then tm:updateItems() end end,
+        })
+    end
+    return items
+end
+
+function Menu:hiddenLibrariesMenu()
+    local _ = self.plugin.i18n._
+    local p = self.plugin
+    local libs, listed = {}, {}
+    local function add(id, name, adult)
+        id = tostring(id)
+        if listed[id] then return end
+        listed[id] = true
+        table.insert(libs, { id = id, name = name or id, adult = adult })
+    end
+    local NetworkMgr = require("ui/network/manager")
+    if p.api and NetworkMgr:isOnline() then
+        local res = p.api:get_libraries()
+        for _i, lib in ipairs(type(res) == "table" and (res.content or res) or {}) do
+            if type(lib) == "table" and lib.id then add(lib.id, lib.name, lib.adult) end
+        end
+    end
+    -- Offline, or gone from the server: what is hidden can still be shown again.
+    for id, name in pairs(Hidden.libraries(p)) do add(id, name) end
+    if #libs == 0 then
+        return { { text = _("Connect to Wi-Fi to list your libraries."), enabled = false } }
+    end
+    local items = {}
+    for _i, lib in ipairs(libs) do
+        table.insert(items, {
+            text = lib.adult and (lib.name .. "  (18+)") or lib.name,
+            checked_func = function() return Hidden.isLibrary(p, lib.id) end,
+            keep_menu_open = true,
+            callback = function(tm)
+                local ok = Hidden.set(p, lib.id, lib.name, not Hidden.isLibrary(p, lib.id))
+                require("uchi/bookorbit_widget").hiddenChanged()
+                if not ok then
+                    p:notify(_("Could not read that library's series, so its chapters may still show until the next try."), "error")
+                end
+                if tm then tm:updateItems() end
+            end,
         })
     end
     return items
